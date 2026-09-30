@@ -1,18 +1,10 @@
 """Run the repository inspection tools over MCP's stdio transport."""
 
-import os
-from pathlib import Path
-
 from mcp.server import MCPServer
 
 from tools.read_file import read_repository_file
+from tools.repository import repository_root
 from tools.search_code import search_repository
-
-
-def repository_root() -> Path:
-    """Return the repository root configured for this server process."""
-    configured_root = os.environ.get("REPOSITORY_ROOT", ".")
-    return Path(configured_root).expanduser().resolve()
 
 
 mcp = MCPServer("developer-intelligence-mcp")

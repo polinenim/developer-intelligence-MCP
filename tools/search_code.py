@@ -3,17 +3,8 @@
 import os
 from pathlib import Path
 
-IGNORED_DIRECTORIES = {
-    ".git",
-    ".hg",
-    ".svn",
-    ".venv",
-    "venv",
-    "__pycache__",
-    "node_modules",
-    "dist",
-    "build",
-}
+from tools.repository import IGNORED_DIRECTORIES
+
 MAX_FILE_BYTES = 1_000_000
 
 
