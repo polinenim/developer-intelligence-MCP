@@ -46,7 +46,7 @@ repository-relative paths.
 
 ## Project Status
 
-Day 1 currently includes:
+Currently includes:
 
 - MCP server
 - Repository file reading
