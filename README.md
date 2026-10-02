@@ -1,7 +1,6 @@
-```
 # Developer Intelligence MCP
 
-A focused repository intelligence project that combines a small MCP server, local repository analysis tools, a repository RAG pipeline, a Gemini-powered AI agent, conversation history, evidence tracking, and web search support through SearXNG.
+A focused repository intelligence project that combines a small MCP server, local repository analysis tools, a repository RAG pipeline, a Gemini-powered AI agent, conversation history, evidence tracking, and web search capabilities.
 
 The system answers questions about a software repository using the repository's actual code as evidence, and the agent can also retrieve external web information via SearXNG when appropriate.
 
@@ -24,32 +23,33 @@ The project is intentionally lightweight and keeps the agent focused on develope
 ## Architecture
 
 ```text
-                                                 User
-                                                     |
-                                                     v
-                                            AI Agent
-                    (decides: REPO, WEB, or BOTH)
-                                                     |
-                                    Gemini + LangChain
-                                                     |
-                            +------------+------------+
-                            |                         |
-                            v                         v
-                Repository Tools           SearXNG Search
-                            |                         |
-                            v                         v
-             Repository RAG                Web Results
-                            |                         |
-                            +------------+------------+
-                                                     |
-                                                     v
-                                                Evidence
-                                                     |
-                                                     v
-                                                 Gemini
-                                                     |
-                                                     v
-                                    Answer + Sources
+                                        User Query
+                                            |
+                                            v
+                                    AI Agent (LangChain)
+                      (decides: REPO, WEB, or BOTH)
+                                            |
+                            +-------+-------+-------+
+                            |                       |
+                        REPO only              WEB only
+                            |                       |
+                    +-------+------+         +------+------+
+                    |              |         |             |
+                    v              v         v             v
+            Repository RAG    Conversation  SearXNG    Conversation
+                |              History       |          History
+                |                           |
+                +-------+---────────────────+
+                        |
+                        v
+                  Evidence Set
+                (repo + web sources)
+                        |
+                        v
+                    Gemini LLM
+                        |
+                        v
+                    Answer + Sources
 ```
 
 Repository RAG:
