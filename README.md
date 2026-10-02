@@ -1,26 +1,32 @@
 # Developer Intelligence MCP
 
-A developer-focused MCP server that reads, searches, and semantically retrieves information from a local source repository.
+A focused repository intelligence project that combines a small MCP server,
+local repository analysis tools, a repository RAG pipeline (local embeddings
+stored in PostgreSQL+pgvector), and a minimal AI agent built on Gemini via
+LangChain.
 
-It combines MCP repository tools with a local RAG pipeline to help an AI assistant understand a codebase and retrieve relevant source code.
+This repository provides:
+
+- MCP repository tools to read and search files inside a configured
+    repository root (`server/mcp_server.py`).
+- A repository RAG pipeline that splits files into chunks, computes local
+    embeddings (Sentence Transformers `all-MiniLM-L6-v2`), and stores vectors
+    in PostgreSQL with the `pgvector` extension.
+- A lightweight AI agent foundation that uses the Gemini chat model via
+    LangChain to answer repository questions using retrieved evidence.
+
+The project is intentionally small and keeps the agent focused on
+repository analysis: evidence is returned with file path and line ranges.
 
 ## Requirements
 
 - Python 3.10 or newer
-- PostgreSQL with the pgvector extension
+- PostgreSQL with the `pgvector` extension
 
-## Technology Stack
+## Quick setup
 
-- Python
-- MCP
-- PostgreSQL
-- pgvector
-- Sentence Transformers
-- `all-MiniLM-L6-v2`
-
-## Setup
-
-From this directory, create and activate a virtual environment, then install the dependencies:
+Create and activate a virtual environment, then install the project's
+dependencies:
 
 ```powershell
 py -m venv .venv
@@ -28,148 +34,100 @@ py -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-## Repository Configuration
-
-Set `REPOSITORY_ROOT` to the local repository that the server should inspect.
-
-If `REPOSITORY_ROOT` is not set, the current working directory is used.
+Set the repository and database environment variables used by the tools:
 
 ```powershell
 $env:REPOSITORY_ROOT = 'C:\path\to\your\repository'
+$env:DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/developer_intelligence'
 ```
 
-## MCP Server
+## MCP repository tools
 
-Start the MCP server with:
+Start the MCP server to expose repository utilities over MCP's stdio
+transport:
 
 ```powershell
 python -m server.mcp_server
 ```
 
-The server uses MCP's stdio transport. An MCP host can launch `python -m server.mcp_server` with this project directory as its working directory and `REPOSITORY_ROOT` set to the target repository.
+The server registers two simple tools:
 
-### Available MCP Tools
+- `read_file(path)` — read a UTF-8 text file by repository-relative path.
+- `search_code(query)` — search repository files for a case-insensitive
+    text query and return matching repository-relative file paths.
 
-#### `read_file(path)`
+These tools reuse the implementations in `tools/read_file.py` and
+`tools/search_code.py` and operate relative to `REPOSITORY_ROOT`.
 
-Reads a UTF-8 text file using its repository-relative path.
+## Repository RAG and local embeddings
 
-#### `search_code(query)`
+The RAG pipeline scans the configured repository, filters files, splits
+source files into text chunks, computes local sentence-transformer
+embeddings, and persists chunk metadata and vectors in PostgreSQL using
+the `pgvector` extension. Each chunk stores:
 
-Searches the repository for a case-insensitive text query and returns matching repository-relative file paths.
+- repository file path
+- chunk text
+- start and end line information
+- embedding vector
 
-Search skips common generated directories, ignored repository content, and files larger than 1 MB.
-
-## Repository RAG
-
-The RAG pipeline scans the configured repository, filters unnecessary files, splits source files into text chunks, generates local embeddings, and stores the chunks and embeddings in PostgreSQL with pgvector.
-
-```text
-Repository
-    ↓
-File Scanner
-    ↓
-File Filtering
-    ↓
-Text Chunks
-    ↓
-Local Embeddings
-    ↓
-PostgreSQL + pgvector
-    ↓
-Similarity Search
-    ↓
-Relevant Repository Chunks
-```
-
-The local embedding model is:
-
-```text
-sentence-transformers/all-MiniLM-L6-v2
-```
-
-The model runs locally and downloads its model files on first use.
-
-Each stored chunk includes repository information such as:
-
-- File path
-- Chunk text
-- Start and end line information
-- Embedding
-- Similarity metadata during retrieval
-
-## Database Setup
-
-Create a PostgreSQL database with pgvector available:
-
-```powershell
-createdb developer_intelligence
-```
-
-Set the database and repository environment variables:
-
-```powershell
-$env:DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/developer_intelligence'
-$env:REPOSITORY_ROOT = 'C:\path\to\your\repository'
-```
-
-Run the repository indexer:
+Use the indexer to populate the database:
 
 ```powershell
 python -m rag.indexing
 ```
 
-The indexing process creates the required `vector` extension, database table, and HNSW index automatically.
+Retrieval is available via `rag.retrieval.retrieve_relevant_chunks(...)`,
+which returns chunks along with file paths, start/end line metadata, and
+similarity scores used as evidence by the AI agent.
 
-## Retrieval
+## Gemini + LangChain (LLM)
 
-Relevant repository chunks can be retrieved using:
+LLM configuration is centralized in `server/llm_config.py`. The project uses
+LangChain's `ChatGoogleGenerativeAI` wrapper for Gemini. The agent obtains
+the model using `agent.get_agent_model()` which delegates to the LLM
+initializer. Tests and the agent code avoid making real API calls by
+accepting a provided fake model during tests.
 
-```python
-retrieve_relevant_chunks(query, embedding_model, vector_store)
-```
+## AI agent and question/answer flow
 
-The retrieval function returns relevant chunks together with file paths, line metadata, and similarity scores.
+The agent composes answers using this simple flow:
 
-These results provide the repository evidence used by the AI layer.
+1. Retrieve relevant chunks from the repository RAG via
+     `retrieve_relevant_chunks(query, embedding_model, vector_store)`.
+2. If no chunks are returned, fall back to `search_code` and `read_file`
+     to collect candidate evidence from repository files.
+3. Compose a short prompt containing the evidence and the question and
+     invoke the configured Gemini chat model via LangChain.
+4. Return the model's answer along with `sources` describing file paths
+     and start/end line ranges for each piece of evidence.
 
-## Project Structure
+The agent's implementation lives under `agent/` and the core answer flow
+is in `agent/core.py`. A convenience wrapper in `agent/agent.py` uses the
+server's `REPOSITORY_ROOT` so the agent runs against the same repository
+configured for the MCP server.
+
+## Project structure
 
 ```text
 developer-intelligence-mcp/
-├── rag/
-│   ├── chunking.py
-│   ├── embeddings.py
-│   ├── file_filter.py
-│   ├── indexing.py
-│   ├── retrieval.py
-│   ├── scanner.py
-│   └── vector_store.py
-├── server/
-│   └── mcp_server.py
-├── tools/
-│   ├── repository.py
-│   ├── read_file.py
-│   └── search_code.py
-├── tests/
+├── rag/                 # RAG pipeline: chunking, embeddings, indexing, retrieval
+├── server/              # LLM config and MCP server exposing repository tools
+├── agent/               # Minimal agent foundation and core answer flow
+├── tools/               # read_file, search_code, repository helpers
+├── tests/               # unit tests
 ├── requirements.txt
 └── README.md
 ```
 
-## Verification
+## Tests
 
-The repository RAG pipeline has been verified with a real PostgreSQL + pgvector database.
-
-- 19 repository files indexed
-- 41 chunks created
-- 384-dimensional embeddings stored
-- PostgreSQL `vector` extension verified
-- HNSW similarity-search index verified
-- Retrieval returned relevant repository chunks
-- Automated test suite: `**8/8 tests passing**`
-
-Run the tests with:
+Run the unit tests with:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
+
+The tests mock LLM calls so they can run without network access or real
+Gemini credentials.
+
