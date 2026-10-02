@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from server.llm_config import init_gemini_chat_model
+from agent import history as conversation_history
 
 
 def get_agent_model(api_key: Optional[str] = None, model_name: str = "gemini-default") -> Any:
@@ -53,8 +54,17 @@ def answer_question(
         for c in chunks:
             start = c.metadata.get("start_line")
             end = c.metadata.get("end_line")
+            # preserve chunk text and similarity score in the source metadata
             evidence_lines.append(f"{c.file_path}:{start}-{end}\n{c.text}")
-            sources.append({"file_path": c.file_path, "start_line": start, "end_line": end})
+            sources.append(
+                {
+                    "file_path": c.file_path,
+                    "start_line": start,
+                    "end_line": end,
+                    "text": c.text,
+                    "score": c.score,
+                }
+            )
     else:
         try:
             hits = search_repository(root, question)
@@ -65,14 +75,26 @@ def answer_question(
                 content = read_repository_file(root, path)
             except Exception:
                 content = ""
-            evidence_lines.append(f"{path}:1-1\n{content.splitlines()[0] if content else ''}")
-            sources.append({"file_path": path, "start_line": 1, "end_line": 1})
+            first_line = content.splitlines()[0] if content else ""
+            evidence_lines.append(f"{path}:1-1\n{first_line}")
+            sources.append({"file_path": path, "start_line": 1, "end_line": 1, "text": first_line, "score": None})
 
     evidence = "\n\n".join(evidence_lines)
+
+    # Include recent conversation history to support follow-up questions.
+    history = conversation_history.get_history()
+    history_block = ""
+    if history:
+        parts: list[str] = []
+        for turn in history:
+            parts.append(f"User: {turn['user']}")
+            parts.append(f"Assistant: {turn['assistant']}")
+        history_block = "\n".join(parts) + "\n\n"
 
     prompt = (
         "You are an assistant answering questions about a repository. Use the evidence"
         " below to answer concisely. Include file:line ranges for sources.\n\n"
+        f"Conversation History:\n{history_block}"
         f"Evidence:\n{evidence}\n\nQuestion: {question}\nAnswer:"
     )
 
@@ -107,4 +129,13 @@ def answer_question(
         else:
             answer_text = str(result)
 
-    return {"answer": answer_text, "sources": sources, "evidence": evidence}
+    result_dict = {"answer": answer_text, "sources": sources, "evidence": evidence}
+
+    # Persist the new conversation turn in memory for the running session.
+    try:
+        conversation_history.append_turn(question, answer_text, sources)
+    except Exception:
+        # History is best-effort; do not fail the request if saving history fails.
+        pass
+
+    return result_dict
