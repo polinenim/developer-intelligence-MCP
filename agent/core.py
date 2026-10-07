@@ -31,11 +31,10 @@ def _decide_tools(question: str, history_block: str, model: Any) -> str:
         f"Conversation History:\n{history_block}\nQuestion: {question}\nSelection:"
     )
     try:
-        resp = None
-        if hasattr(model, "generate"):
-            resp = model.generate(prompt)
-        elif hasattr(model, "invoke"):
+        if hasattr(model, "invoke"):
             resp = model.invoke(prompt)
+        elif hasattr(model, "generate"):
+            resp = model.generate(prompt)
         else:
             resp = model(prompt)
         if isinstance(resp, str):
@@ -82,6 +81,8 @@ def answer_question(
         chunks = retrieve_relevant_chunks(question, embedding_model, vector_store, root=root, limit=limit)
     except Exception:
         chunks = []
+
+    
 
     evidence_lines: list[str] = []
     sources: list[dict] = []
@@ -229,10 +230,10 @@ def answer_question(
     # Call the model; tests will provide a fake model that returns a string.
     result = None
     try:
-        if hasattr(model, "generate"):
-            result = model.generate(prompt)
-        elif hasattr(model, "invoke"):
+        if hasattr(model, "invoke"):
             result = model.invoke(prompt)
+        elif hasattr(model, "generate"):
+            result = model.generate(prompt)
         else:
             result = model(prompt)
     except Exception:
@@ -243,6 +244,19 @@ def answer_question(
         answer_text = result
     elif result is None:
         answer_text = ""
+    elif hasattr(result, "content"):
+        content = result.content
+
+        if isinstance(content, str):
+            answer_text = content
+        elif isinstance(content, list):
+            answer_text = "\n".join(
+                item.get("text", "")
+                for item in content
+                if isinstance(item, dict) and item.get("type") == "text"
+            )
+        else:
+            answer_text = str(content)
     else:
         gens = getattr(result, "generations", None)
         if gens:
@@ -259,7 +273,9 @@ def answer_question(
 
     result_dict = {"answer": answer_text, "sources": sources, "evidence": evidence}
 
-    # Persist the new conversation turn in memory for the running session.
+    
+
+# Persist the new conversation turn in memory for the running session.
     try:
         conversation_history.append_turn(question, answer_text, sources)
     except Exception:

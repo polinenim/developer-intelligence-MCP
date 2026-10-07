@@ -26,7 +26,7 @@ def get_gemini_api_key() -> str:
     return key
 
 
-def init_gemini_chat_model(api_key: Optional[str] = None, model_name: str = "gemini-default") -> Any:
+def init_gemini_chat_model(api_key: Optional[str] = None, model_name: str = "gemini-3.6-flash") -> Any:
     """Initialize and return the LangChain `ChatGoogleGenerativeAI` model.
 
     - Reads the API key from `GEMINI_API_KEY` when `api_key` is None.

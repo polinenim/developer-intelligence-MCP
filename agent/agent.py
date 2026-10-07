@@ -17,7 +17,7 @@ from tools.repository import repository_root
 
 def get_agent_model(
     api_key: Optional[str] = None,
-    model_name: str = "gemini-default",
+    model_name: str = "gemini-3.6-flash",
 ) -> Any:
     """Return a configured Gemini chat-model instance for agent use.
 
@@ -71,7 +71,7 @@ class Agent:
         vector_store: Any,
         model: Optional[Any] = None,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-default",
+        model_name: str = "gemini-3.6-flash",
     ) -> None:
         self.embedding_model = embedding_model
         self.vector_store = vector_store
