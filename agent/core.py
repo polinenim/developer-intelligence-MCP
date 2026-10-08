@@ -77,84 +77,6 @@ def answer_question(
     from tools.read_file import read_repository_file
     from tools.searxng import search_web
 
-    try:
-        chunks = retrieve_relevant_chunks(question, embedding_model, vector_store, root=root, limit=limit)
-    except Exception:
-        chunks = []
-
-    
-
-    evidence_lines: list[str] = []
-    sources: list[dict] = []
-
-    if chunks:
-        for c in chunks:
-            start = c.metadata.get("start_line")
-            end = c.metadata.get("end_line")
-            # preserve chunk text and similarity score in the source metadata
-            evidence_lines.append(f"{c.file_path}:{start}-{end}\n{c.text}")
-            sources.append(
-                {
-                    "file_path": c.file_path,
-                    "start_line": start,
-                    "end_line": end,
-                    "text": c.text,
-                    "score": c.score,
-                }
-            )
-        # Determine whether to augment repository evidence with web results.
-        web_results = []
-        try:
-            # Simple heuristic: if the question mentions 'latest' or 'version'
-            # or 'who'/'when' (external facts), also consult the web.
-            web_keywords = ("latest", "version", "who", "when", "year", "won", "changed", "release")
-            if any(k in question.lower() for k in web_keywords):
-                # Use conversation history to enrich the search query when available.
-                history = conversation_history.get_history()
-                search_query = (
-                    (history[-1]["user"] + " " + question) if history else question
-                )
-                web_results = search_web(search_query, limit=limit)
-        except Exception:
-            web_results = []
-        for w in web_results:
-            title = w.get("title", "")
-            url = w.get("url", "")
-            snippet = w.get("snippet", "")
-            evidence_lines.append(f"[WEB] {title} - {url}\n{snippet}")
-            sources.append({"type": "web", "title": title, "url": url, "snippet": snippet})
-    else:
-        try:
-            hits = search_repository(root, question)
-        except Exception:
-            hits = []
-        for path in hits[:limit]:
-            try:
-                content = read_repository_file(root, path)
-            except Exception:
-                content = ""
-            first_line = content.splitlines()[0] if content else ""
-            evidence_lines.append(f"{path}:1-1\n{first_line}")
-            sources.append({"file_path": path, "start_line": 1, "end_line": 1, "text": first_line, "score": None})
-
-    # If there were no repository chunks, consider web search as a fallback.
-    if not chunks:
-        web_results = []
-        try:
-            history = conversation_history.get_history()
-            search_query = ((history[-1]["user"] + " " + question) if history else question)
-            web_results = search_web(search_query, limit=limit)
-        except Exception:
-            web_results = []
-        for w in web_results:
-            title = w.get("title", "")
-            url = w.get("url", "")
-            snippet = w.get("snippet", "")
-            evidence_lines.append(f"[WEB] {title} - {url}\n{snippet}")
-            sources.append({"type": "web", "title": title, "url": url, "snippet": snippet})
-
-    evidence = "\n\n".join(evidence_lines)
-
     # Include recent conversation history to support follow-up questions.
     history = conversation_history.get_history()
     history_block = ""
@@ -180,7 +102,7 @@ def answer_question(
         try:
             search_query = ((history[-1]["user"] + " " + question) if history else question)
             web_results = search_web(search_query, limit=limit)
-        except Exception:
+        except Exception as exc:
             web_results = []
 
     # Build evidence from retrieved chunks and web results
