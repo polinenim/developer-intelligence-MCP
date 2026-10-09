@@ -30,25 +30,22 @@ def _decide_tools(question: str, history_block: str, model: Any) -> str:
         "Reply with exactly one of: REPO, WEB, or BOTH. No other text.\n\n"
         f"Conversation History:\n{history_block}\nQuestion: {question}\nSelection:"
     )
-    try:
-        if hasattr(model, "invoke"):
-            resp = model.invoke(prompt)
-        elif hasattr(model, "generate"):
-            resp = model.generate(prompt)
-        else:
-            resp = model(prompt)
-        if isinstance(resp, str):
-            token = resp.strip().upper()
-        else:
-            token = str(resp).strip().upper()
-        if "BOTH" in token:
-            return "BOTH"
-        if "WEB" in token:
-            return "WEB"
-        if "REPO" in token:
-            return "REPO"
-    except Exception:
-        pass
+    if hasattr(model, "invoke"):
+        resp = model.invoke(prompt)
+    elif hasattr(model, "generate"):
+        resp = model.generate(prompt)
+    else:
+        resp = model(prompt)
+    if isinstance(resp, str):
+        token = resp.strip().upper()
+    else:
+        token = str(resp).strip().upper()
+    if "BOTH" in token:
+        return "BOTH"
+    if "WEB" in token:
+        return "WEB"
+    if "REPO" in token:
+        return "REPO"
     return "REPO"
 
 
@@ -150,16 +147,12 @@ def answer_question(
     )
 
     # Call the model; tests will provide a fake model that returns a string.
-    result = None
-    try:
-        if hasattr(model, "invoke"):
-            result = model.invoke(prompt)
-        elif hasattr(model, "generate"):
-            result = model.generate(prompt)
-        else:
-            result = model(prompt)
-    except Exception:
-        result = None
+    if hasattr(model, "invoke"):
+        result = model.invoke(prompt)
+    elif hasattr(model, "generate"):
+        result = model.generate(prompt)
+    else:
+        result = model(prompt)
 
     # Normalize response to text.
     if isinstance(result, str):
@@ -172,11 +165,13 @@ def answer_question(
         if isinstance(content, str):
             answer_text = content
         elif isinstance(content, list):
-            answer_text = "\n".join(
-                item.get("text", "")
-                for item in content
-                if isinstance(item, dict) and item.get("type") == "text"
-            )
+            text_parts = []
+            for item in content:
+                if isinstance(item, str):
+                    text_parts.append(item)
+                elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                    text_parts.append(item["text"])
+            answer_text = "\n".join(text_parts)
         else:
             answer_text = str(content)
     else:

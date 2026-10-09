@@ -22,6 +22,55 @@ class AgentFlowTests(unittest.TestCase):
         self.assertEqual(len(res["sources"]), 1)
         self.assertEqual(res["sources"][0]["file_path"], "src/auth.py")
 
+    def test_answer_extracts_text_from_gemini_content_blocks(self):
+        chunk = RetrievedChunk(file_path="rag/retrieval.py", text="def retrieve(): pass", score=0.9, metadata={"start_line": 1, "end_line": 1})
+        fake_model = SimpleNamespace()
+
+        def invoke(prompt):
+            if prompt.startswith("TOOL_SELECTION:"):
+                return "REPO"
+            return SimpleNamespace(content=[{"text": "Retrieval is implemented in rag/retrieval.py."}])
+
+        fake_model.invoke = invoke
+
+        with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[chunk]):
+            res = answer_question("Which file handles retrieval?", embedding_model=None, vector_store=None, model=fake_model, root="/repo")
+
+        self.assertEqual(res["answer"], "Retrieval is implemented in rag/retrieval.py.")
+        self.assertIn("rag/retrieval.py", res["evidence"])
+        self.assertEqual(res["sources"][0]["file_path"], "rag/retrieval.py")
+
+    def test_empty_model_response_stays_empty(self):
+        chunk = RetrievedChunk(file_path="rag/retrieval.py", text="def retrieve(): pass", score=0.9, metadata={"start_line": 1, "end_line": 1})
+        fake_model = SimpleNamespace()
+
+        def generate(prompt):
+            if prompt.startswith("TOOL_SELECTION:"):
+                return "REPO"
+            return SimpleNamespace(content=[])
+
+        fake_model.generate = generate
+
+        with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[chunk]):
+            res = answer_question("Which file handles retrieval?", embedding_model=None, vector_store=None, model=fake_model, root="/repo")
+
+        self.assertEqual(res["answer"], "")
+        self.assertTrue(res["evidence"])
+
+    def test_answer_model_errors_are_not_hidden(self):
+        fake_model = SimpleNamespace()
+
+        def generate(prompt):
+            if prompt.startswith("TOOL_SELECTION:"):
+                return "REPO"
+            raise RuntimeError("Gemini request failed")
+
+        fake_model.generate = generate
+
+        with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[]):
+            with self.assertRaisesRegex(RuntimeError, "Gemini request failed"):
+                answer_question("Which file handles retrieval?", embedding_model=None, vector_store=None, model=fake_model, root="/repo")
+
     def test_answer_falls_back_to_search_and_read(self):
         fake_model = SimpleNamespace()
         fake_model.generate = lambda prompt: "FILE ANSWER"
