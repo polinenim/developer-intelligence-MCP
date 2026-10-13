@@ -52,6 +52,17 @@ def create_app() -> Flask:
         question = data.get("question") if isinstance(data, dict) else None
         if not question or not isinstance(question, str):
             return jsonify({"error": "question is required"}), 400
+        # Allow the client to optionally provide a repository root for this
+        # request so the server can operate on the active workspace. When
+        # provided we temporarily set REPOSITORY_ROOT in the process
+        # environment for the duration of the request and restore it after.
+        repo_root = None
+        if isinstance(data, dict):
+            repo_root = data.get("repository_root")
+
+        previous_root = os.environ.get("REPOSITORY_ROOT")
+        if repo_root:
+            os.environ["REPOSITORY_ROOT"] = repo_root
 
         try:
             # Construct Agent per-request to ensure the model instance is
@@ -60,6 +71,13 @@ def create_app() -> Flask:
             result = agent.ask(question)
         except Exception as exc:  # Keep errors local and return 500
             return jsonify({"error": str(exc)}), 500
+        finally:
+            # Restore previous environment setting (or remove if none)
+            if repo_root:
+                if previous_root is None:
+                    os.environ.pop("REPOSITORY_ROOT", None)
+                else:
+                    os.environ["REPOSITORY_ROOT"] = previous_root
 
         return jsonify(result)
 

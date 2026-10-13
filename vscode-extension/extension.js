@@ -23,10 +23,22 @@ function activate(context) {
 
   async function askAgent(question) {
     try {
+      // Determine the active workspace folder (if any) and include it
+      // so the backend can operate on the opened repository. Handle the
+      // case where no folder is open gracefully.
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      const repositoryRoot =
+        Array.isArray(workspaceFolders) && workspaceFolders.length > 0
+          ? workspaceFolders[0].uri.fsPath
+          : null;
+
+      const body = { question };
+      if (repositoryRoot) body.repository_root = repositoryRoot;
+
       const resp = await fetch(API_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify(body),
       });
 
       if (!resp.ok) {
@@ -137,6 +149,12 @@ function activate(context) {
       const question = await vscode.window.showInputBox({
         placeHolder: 'Ask a question about this repository',
       });
+
+      if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+        vscode.window.showInformationMessage(
+          'No folder is open in VS Code. Open a repository folder to ask questions about its code.'
+        );
+      }
 
       if (!question || !question.trim()) {
         return;

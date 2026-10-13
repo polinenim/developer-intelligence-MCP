@@ -1,5 +1,7 @@
 """Tests for the agent answer flow connecting RAG and repository tools."""
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -67,7 +69,9 @@ class AgentFlowTests(unittest.TestCase):
 
         fake_model.generate = generate
 
-        with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[]):
+        with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[]), patch(
+            "agent.mcp_client.search_and_read_repository", return_value=[]
+        ):
             with self.assertRaisesRegex(RuntimeError, "Gemini request failed"):
                 answer_question("Which file handles retrieval?", embedding_model=None, vector_store=None, model=fake_model, root="/repo")
 
@@ -76,13 +80,48 @@ class AgentFlowTests(unittest.TestCase):
         fake_model.generate = lambda prompt: "FILE ANSWER"
 
         with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[]), patch(
-            "tools.search_code.search_repository", return_value=["README.md"]
-        ), patch("tools.read_file.read_repository_file", return_value="Authentication overview\nMore details"):
+            "agent.mcp_client.search_and_read_repository",
+            return_value=[("README.md", "Authentication overview\nMore details")],
+        ):
             res = answer_question("Where is auth?", embedding_model=None, vector_store=None, model=fake_model, root="/repo")
 
         self.assertEqual(res["answer"], "FILE ANSWER")
         self.assertEqual(len(res["sources"]), 1)
         self.assertEqual(res["sources"][0]["file_path"], "README.md")
+
+    def test_answer_uses_mcp_server_for_repository_fallback(self):
+        fake_model = SimpleNamespace()
+
+        def generate(prompt):
+            if prompt.startswith("TOOL_SELECTION:"):
+                return "REPO"
+            return "MCP ANSWER"
+
+        fake_model.generate = generate
+
+        with tempfile.TemporaryDirectory() as temporary_root:
+            repository = Path(temporary_root)
+            (repository / "README.md").write_text(
+                "mcp repository sentinel\nAdditional details\n", encoding="utf-8"
+            )
+            with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[]), patch(
+                "tools.search_code.search_repository",
+                side_effect=AssertionError("direct repository search was used"),
+            ), patch(
+                "tools.read_file.read_repository_file",
+                side_effect=AssertionError("direct repository read was used"),
+            ):
+                result = answer_question(
+                    "mcp repository sentinel",
+                    embedding_model=None,
+                    vector_store=None,
+                    model=fake_model,
+                    root=temporary_root,
+                )
+
+        self.assertEqual(result["answer"], "MCP ANSWER")
+        self.assertEqual(result["sources"][0]["file_path"], "README.md")
+        self.assertIn("mcp repository sentinel", result["evidence"])
 
 
 if __name__ == "__main__":

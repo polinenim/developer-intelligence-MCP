@@ -6,10 +6,40 @@
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
+      "cwd": "${workspaceFolder}",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}/vscode-extension"
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode-extension",
+        "--folder-uri",
+        "file://${workspaceFolder}"
       ],
-      "outFiles": []
+      "env": {
+        "REPOSITORY_ROOT": "${workspaceFolder}"
+      }
+    }
+    ,
+    {
+      "name": "Run Local Agent API",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/server/agent_api.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "GEMINI_API_KEY": "${env:GEMINI_API_KEY}",
+        "GOOGLE_API_KEY": "${env:GOOGLE_API_KEY}",
+        "DATABASE_URL": "${env:DATABASE_URL}",
+        "REPOSITORY_ROOT": "${workspaceFolder}"
+      }
+    }
+  ]
+  ,
+  "compounds": [
+    {
+      "name": "Run Extension + API",
+      "configurations": [
+        "Run Local Agent API",
+        "Run Developer Intelligence Extension"
+      ]
     }
   ]
 }

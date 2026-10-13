@@ -70,9 +70,8 @@ def answer_question(
 
     # Local imports to avoid startup costs and import cycles in tests.
     from rag.retrieval import retrieve_relevant_chunks
-    from tools.search_code import search_repository
-    from tools.read_file import read_repository_file
     from tools.searxng import search_web
+    from agent.mcp_client import search_and_read_repository
 
     # Include recent conversation history to support follow-up questions.
     history = conversation_history.get_history()
@@ -124,15 +123,8 @@ def answer_question(
 
     # If both are empty, fall back to repository search/read as before
     if not chunks and not web_results:
-        try:
-            hits = search_repository(root, question)
-        except Exception:
-            hits = []
-        for path in hits[:limit]:
-            try:
-                content = read_repository_file(root, path)
-            except Exception:
-                content = ""
+        repository_files = search_and_read_repository(root, question, limit=limit)
+        for path, content in repository_files:
             first_line = content.splitlines()[0] if content else ""
             evidence_lines.append(f"{path}:1-1\n{first_line}")
             sources.append({"file_path": path, "start_line": 1, "end_line": 1, "text": first_line, "score": None})
