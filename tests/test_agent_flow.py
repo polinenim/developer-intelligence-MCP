@@ -122,6 +122,9 @@ class AgentFlowTests(unittest.TestCase):
         self.assertEqual(result["answer"], "MCP ANSWER")
         self.assertEqual(result["sources"][0]["file_path"], "README.md")
         self.assertIn("mcp repository sentinel", result["evidence"])
+        self.assertIn("Additional details", result["evidence"])
+        self.assertEqual(result["sources"][0]["end_line"], 2)
+        self.assertIn("Additional details", result["sources"][0]["text"])
 
 
 if __name__ == "__main__":

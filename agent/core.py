@@ -125,9 +125,9 @@ def answer_question(
     if not chunks and not web_results:
         repository_files = search_and_read_repository(root, question, limit=limit)
         for path, content in repository_files:
-            first_line = content.splitlines()[0] if content else ""
-            evidence_lines.append(f"{path}:1-1\n{first_line}")
-            sources.append({"file_path": path, "start_line": 1, "end_line": 1, "text": first_line, "score": None})
+            end_line = max(1, len(content.splitlines()))
+            evidence_lines.append(f"{path}:1-{end_line}\n{content}")
+            sources.append({"file_path": path, "start_line": 1, "end_line": end_line, "text": content, "score": None})
 
     evidence = "\n\n".join(evidence_lines)
 
