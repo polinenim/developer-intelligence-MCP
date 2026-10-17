@@ -15,13 +15,12 @@
       "env": {
         "REPOSITORY_ROOT": "${workspaceFolder}"
       }
-    }
-    ,
+    },
     {
       "name": "Run Local Agent API",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/server/agent_api.py",
+      "module": "server.agent_api",
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -31,8 +30,7 @@
         "REPOSITORY_ROOT": "${workspaceFolder}"
       }
     }
-  ]
-  ,
+  ],
   "compounds": [
     {
       "name": "Run Extension + API",

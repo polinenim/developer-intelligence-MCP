@@ -48,9 +48,9 @@ def create_app() -> Flask:
 
     @app.route("/ask", methods=["POST"])
     def ask():
-        data = request.get_json(force=True)
+        data = request.get_json(force=True, silent=True)
         question = data.get("question") if isinstance(data, dict) else None
-        if not question or not isinstance(question, str):
+        if not isinstance(question, str) or not question.strip():
             return jsonify({"error": "question is required"}), 400
         # Allow the client to optionally provide a repository root for this
         # request so the server can operate on the active workspace. When

@@ -52,3 +52,15 @@ def test_ask_endpoint_monkeypatch(monkeypatch):
     data = resp.get_json()
     assert data["answer"] == "answered: hello"
     assert isinstance(data["sources"], list)
+
+    for invalid_question in ("", "   ", None, 42):
+        invalid_resp = client.post(
+            "/ask",
+            data=json.dumps({"question": invalid_question}),
+            content_type="application/json",
+        )
+        assert invalid_resp.status_code == 400
+
+    malformed_resp = client.post("/ask", data="{", content_type="application/json")
+    assert malformed_resp.status_code == 400
+    assert malformed_resp.get_json() == {"error": "question is required"}
