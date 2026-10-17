@@ -35,6 +35,13 @@ class RepositoryToolsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             read_repository_file(self.root, "../outside.txt")
 
+    def test_read_file_reports_non_utf8_content(self) -> None:
+        invalid_text = self.root / "invalid.txt"
+        invalid_text.write_bytes(b"\xff")
+
+        with self.assertRaisesRegex(ValueError, "file is not UTF-8 text"):
+            read_repository_file(self.root, "invalid.txt")
+
     def test_search_code_rejects_empty_query(self) -> None:
         with self.assertRaises(ValueError):
             search_repository(self.root, "")
