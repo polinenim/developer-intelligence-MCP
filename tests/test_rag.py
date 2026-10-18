@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Sequence
+from unittest.mock import Mock
 
 from rag.chunking import chunk_file
 from rag.indexing import index_repository
@@ -125,6 +126,22 @@ class RepositoryRagTests(unittest.TestCase):
     def test_retrieval_rejects_empty_query(self) -> None:
         with self.assertRaises(ValueError):
             retrieve_relevant_chunks("", FakeEmbeddings(), FakeVectorStore(), root=self.root)
+
+    def test_retrieval_rejects_non_positive_limit_before_embedding_or_search(self) -> None:
+        for limit in (0, -1):
+            embedding_model = Mock()
+            vector_store = Mock()
+            with self.subTest(limit=limit):
+                with self.assertRaisesRegex(ValueError, "limit must be greater than zero"):
+                    retrieve_relevant_chunks(
+                        "authentication",
+                        embedding_model,
+                        vector_store,
+                        root=self.root,
+                        limit=limit,
+                    )
+                embedding_model.embed_query.assert_not_called()
+                vector_store.search.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -18,5 +18,7 @@ def retrieve_relevant_chunks(
     """Return the most relevant indexed chunks for query from the active repository."""
     if not query.strip():
         raise ValueError("query must not be empty")
+    if limit <= 0:
+        raise ValueError("limit must be greater than zero")
     repository = (root or repository_root()).expanduser().resolve()
     return vector_store.search(str(repository), embedding_model.embed_query(query), limit)
