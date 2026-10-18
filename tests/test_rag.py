@@ -123,6 +123,51 @@ class RepositoryRagTests(unittest.TestCase):
         self.assertEqual(matches[0].file_path, "src/auth.py")
         self.assertGreater(matches[0].score, 0.9)
 
+    def test_retrieval_matches_different_user_and_code_terminology(self) -> None:
+        (self.root / "src").mkdir()
+        (self.root / "src" / "auth.py").write_text(
+            "def authenticate_user(username, password):\n"
+            "    return identity_provider.verify_credentials(username, password)\n",
+            encoding="utf-8",
+        )
+        (self.root / "src" / "database.py").write_text(
+            "def connect_to_database(connection_string):\n"
+            "    return psycopg.connect(connection_string)\n",
+            encoding="utf-8",
+        )
+
+        class TerminologyTestEmbeddings:
+            """Map login and authentication terms to one deterministic concept."""
+
+            @staticmethod
+            def _embed(text: str) -> list[float]:
+                lowered = text.casefold()
+                if any(term in lowered for term in ("login", "authenticate", "credential")):
+                    return [1.0, 0.0]
+                if "database" in lowered:
+                    return [0.0, 1.0]
+                return [0.0, 0.0]
+
+            def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+                return [self._embed(text) for text in texts]
+
+            def embed_query(self, query: str) -> list[float]:
+                return self._embed(query)
+
+        embeddings = TerminologyTestEmbeddings()
+        store = FakeVectorStore()
+        index_repository(self.root, embeddings, store)
+
+        matches = retrieve_relevant_chunks(
+            "How do we validate a person's login details before granting access?",
+            embeddings,
+            store,
+            root=self.root,
+            limit=1,
+        )
+
+        self.assertEqual(matches[0].file_path, "src/auth.py")
+
     def test_retrieval_rejects_empty_query(self) -> None:
         with self.assertRaises(ValueError):
             retrieve_relevant_chunks("", FakeEmbeddings(), FakeVectorStore(), root=self.root)
