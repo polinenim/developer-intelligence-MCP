@@ -21,4 +21,5 @@ def retrieve_relevant_chunks(
     if limit <= 0:
         raise ValueError("limit must be greater than zero")
     repository = (root or repository_root()).expanduser().resolve()
-    return vector_store.search(str(repository), embedding_model.embed_query(query), limit)
+    matches = vector_store.search(str(repository), embedding_model.embed_query(query), limit)
+    return [match for match in matches if match.score > 0]

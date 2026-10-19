@@ -168,6 +168,43 @@ class RepositoryRagTests(unittest.TestCase):
 
         self.assertEqual(matches[0].file_path, "src/auth.py")
 
+    def test_unrelated_query_excludes_zero_similarity_chunks(self) -> None:
+        (self.root / "src").mkdir()
+        (self.root / "src" / "auth.py").write_text(
+            "def authenticate_user(username, password):\n    return True\n",
+            encoding="utf-8",
+        )
+        (self.root / "src" / "database.py").write_text(
+            "def connect_to_database(connection_string):\n    return None\n",
+            encoding="utf-8",
+        )
+
+        class OrthogonalTestEmbeddings:
+            """Give unrelated query and repository chunks orthogonal vectors."""
+
+            def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+                return [
+                    [1.0, 0.0, 0.0] if "authenticate" in text else [0.0, 1.0, 0.0]
+                    for text in texts
+                ]
+
+            def embed_query(self, query: str) -> list[float]:
+                return [0.0, 0.0, 1.0]
+
+        embeddings = OrthogonalTestEmbeddings()
+        store = FakeVectorStore()
+        index_repository(self.root, embeddings, store)
+
+        matches = retrieve_relevant_chunks(
+            "What is the weather forecast?",
+            embeddings,
+            store,
+            root=self.root,
+            limit=5,
+        )
+
+        self.assertEqual(matches, [])
+
     def test_retrieval_rejects_empty_query(self) -> None:
         with self.assertRaises(ValueError):
             retrieve_relevant_chunks("", FakeEmbeddings(), FakeVectorStore(), root=self.root)
