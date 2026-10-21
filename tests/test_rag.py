@@ -121,6 +121,7 @@ class RepositoryRagTests(unittest.TestCase):
         self.assertEqual(result.files_indexed, 2)
         self.assertEqual(result.chunks_indexed, 2)
         self.assertEqual(matches[0].file_path, "src/auth.py")
+        self.assertEqual(matches[0].metadata, {"start_line": 1, "end_line": 2})
         self.assertGreater(matches[0].score, 0.9)
 
     def test_retrieval_matches_different_user_and_code_terminology(self) -> None:

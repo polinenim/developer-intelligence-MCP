@@ -22,7 +22,13 @@ class AgentFlowTests(unittest.TestCase):
 
         self.assertEqual(res["answer"], "FAKE ANSWER")
         self.assertEqual(len(res["sources"]), 1)
-        self.assertEqual(res["sources"][0]["file_path"], "src/auth.py")
+        source = res["sources"][0]
+        self.assertEqual(source["file_path"], "src/auth.py")
+        self.assertEqual(source["start_line"], 10)
+        self.assertEqual(source["end_line"], 12)
+        self.assertEqual(source["text"], chunk.text)
+        self.assertAlmostEqual(source["score"], 0.9)
+        self.assertIn(f"src/auth.py:10-12\n{chunk.text}", res["evidence"])
 
     def test_answer_extracts_text_from_gemini_content_blocks(self):
         chunk = RetrievedChunk(file_path="rag/retrieval.py", text="def retrieve(): pass", score=0.9, metadata={"start_line": 1, "end_line": 1})
