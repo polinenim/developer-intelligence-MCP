@@ -168,6 +168,70 @@ class RepositoryRagTests(unittest.TestCase):
 
         self.assertEqual(matches[0].file_path, "src/auth.py")
 
+    def test_retrieval_evaluation_returns_expected_files_at_top_one(self) -> None:
+        (self.root / "src").mkdir()
+        (self.root / "src" / "auth.py").write_text(
+            "def verify_credentials(username, password):\n    return True\n",
+            encoding="utf-8",
+        )
+        (self.root / "src" / "database.py").write_text(
+            "def open_database_connection(url):\n    return psycopg.connect(url)\n",
+            encoding="utf-8",
+        )
+        (self.root / "src" / "config.py").write_text(
+            "def read_runtime_options(path):\n    return json.loads(Path(path).read_text())\n",
+            encoding="utf-8",
+        )
+
+        class EvaluationEmbeddings:
+            """Map related query and code terms to deterministic concept vectors."""
+
+            _terms = {
+                "authentication": ("login", "credential", "password"),
+                "database": ("database", "postgres", "connection", "connect"),
+                "configuration": ("settings", "options", "config"),
+            }
+            _vectors = {
+                "authentication": [1.0, 0.0, 0.0],
+                "database": [0.0, 1.0, 0.0],
+                "configuration": [0.0, 0.0, 1.0],
+            }
+
+            @classmethod
+            def _embed(cls, text: str) -> list[float]:
+                lowered = text.casefold()
+                for concept, terms in cls._terms.items():
+                    if any(term in lowered for term in terms):
+                        return cls._vectors[concept]
+                return [0.0, 0.0, 0.0]
+
+            def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+                return [self._embed(text) for text in texts]
+
+            def embed_query(self, query: str) -> list[float]:
+                return self._embed(query)
+
+        evaluations = (
+            ("How do we check a user's login before granting access?", "src/auth.py"),
+            ("Where does the service open a PostgreSQL connection?", "src/database.py"),
+            ("Where are the application's settings loaded from?", "src/config.py"),
+        )
+        embeddings = EvaluationEmbeddings()
+        store = FakeVectorStore()
+        index_repository(self.root, embeddings, store)
+
+        correct_top_one = 0
+        for query, expected_file in evaluations:
+            with self.subTest(query=query):
+                matches = retrieve_relevant_chunks(
+                    query, embeddings, store, root=self.root, limit=3
+                )
+                top_file = matches[0].file_path if matches else None
+                correct_top_one += top_file == expected_file
+                self.assertEqual(top_file, expected_file)
+
+        self.assertEqual(correct_top_one / len(evaluations), 1.0)
+
     def test_unrelated_query_excludes_zero_similarity_chunks(self) -> None:
         (self.root / "src").mkdir()
         (self.root / "src" / "auth.py").write_text(
