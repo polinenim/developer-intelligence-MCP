@@ -38,7 +38,20 @@ def test_ask_endpoint_monkeypatch(monkeypatch):
     # Monkeypatch Agent.ask to return a deterministic payload. Do this before
     # creating the app so the constructed Agent uses the patched method.
     def fake_ask(self, question, limit=5):
-        return {"answer": f"answered: {question}", "sources": [], "evidence": ""}
+        source_text = "def run(): pass"
+        return {
+            "answer": f"answered: {question}",
+            "sources": [
+                {
+                    "file_path": "src/example.py",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "text": source_text,
+                    "score": 0.9,
+                }
+            ],
+            "evidence": f"src/example.py:1-1\n{source_text}",
+        }
 
     monkeypatch.setattr(agent_mod.Agent, "ask", fake_ask)
 
@@ -49,9 +62,21 @@ def test_ask_endpoint_monkeypatch(monkeypatch):
 
     resp = client.post("/ask", data=json.dumps({"question": "hello"}), content_type="application/json")
     assert resp.status_code == 200
+    assert resp.is_json
     data = resp.get_json()
-    assert data["answer"] == "answered: hello"
-    assert isinstance(data["sources"], list)
+    assert data == {
+        "answer": "answered: hello",
+        "sources": [
+            {
+                "file_path": "src/example.py",
+                "start_line": 1,
+                "end_line": 1,
+                "text": "def run(): pass",
+                "score": 0.9,
+            }
+        ],
+        "evidence": "src/example.py:1-1\ndef run(): pass",
+    }
 
     for invalid_question in ("", "   ", None, 42):
         invalid_resp = client.post(
