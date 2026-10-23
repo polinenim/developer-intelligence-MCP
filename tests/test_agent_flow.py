@@ -15,7 +15,13 @@ class AgentFlowTests(unittest.TestCase):
         chunk = RetrievedChunk(file_path="src/auth.py", text="def auth(): pass", score=0.9, metadata={"start_line": 10, "end_line": 12})
 
         fake_model = SimpleNamespace()
-        fake_model.generate = lambda prompt: "FAKE ANSWER"
+        prompts = []
+
+        def generate(prompt):
+            prompts.append(prompt)
+            return "REPO" if prompt.startswith("TOOL_SELECTION:") else "FAKE ANSWER"
+
+        fake_model.generate = generate
 
         with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[chunk]):
             res = answer_question("How authenticate?", embedding_model=None, vector_store=None, model=fake_model, root="/tmp")
@@ -29,6 +35,38 @@ class AgentFlowTests(unittest.TestCase):
         self.assertEqual(source["text"], chunk.text)
         self.assertAlmostEqual(source["score"], 0.9)
         self.assertIn(f"src/auth.py:10-12\n{chunk.text}", res["evidence"])
+        self.assertIn(f"Evidence:\nsrc/auth.py:10-12\n{chunk.text}", prompts[-1])
+
+    def test_repository_question_without_evidence_returns_abstention(self):
+        fake_model = SimpleNamespace()
+        answer_prompts = []
+
+        def generate(prompt):
+            if prompt.startswith("TOOL_SELECTION:"):
+                return "REPO"
+            answer_prompts.append(prompt)
+            return "The repository uses unsupported implementation details."
+
+        fake_model.generate = generate
+
+        with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[]), patch(
+            "agent.mcp_client.search_and_read_repository", return_value=[]
+        ), patch("tools.searxng.search_web", return_value=[]):
+            result = answer_question(
+                "How is the payment processed?",
+                embedding_model=None,
+                vector_store=None,
+                model=fake_model,
+                root="/repo",
+            )
+
+        self.assertEqual(
+            result["answer"],
+            "I couldn't find relevant evidence to answer that question.",
+        )
+        self.assertEqual(result["sources"], [])
+        self.assertEqual(result["evidence"], "")
+        self.assertEqual(answer_prompts, [])
 
     def test_answer_extracts_text_from_gemini_content_blocks(self):
         chunk = RetrievedChunk(file_path="rag/retrieval.py", text="def retrieve(): pass", score=0.9, metadata={"start_line": 1, "end_line": 1})
@@ -76,7 +114,8 @@ class AgentFlowTests(unittest.TestCase):
         fake_model.generate = generate
 
         with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[]), patch(
-            "agent.mcp_client.search_and_read_repository", return_value=[]
+            "agent.mcp_client.search_and_read_repository",
+            return_value=[("README.md", "repository evidence")],
         ):
             with self.assertRaisesRegex(RuntimeError, "Gemini request failed"):
                 answer_question("Which file handles retrieval?", embedding_model=None, vector_store=None, model=fake_model, root="/repo")

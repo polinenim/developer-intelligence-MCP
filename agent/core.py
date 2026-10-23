@@ -138,8 +138,11 @@ def answer_question(
         f"Evidence:\n{evidence}\n\nQuestion: {question}\nAnswer:"
     )
 
+    # Do not ask the model to answer repository questions without any evidence.
+    if not evidence:
+        result = "I couldn't find relevant evidence to answer that question."
     # Call the model; tests will provide a fake model that returns a string.
-    if hasattr(model, "invoke"):
+    elif hasattr(model, "invoke"):
         result = model.invoke(prompt)
     elif hasattr(model, "generate"):
         result = model.generate(prompt)
