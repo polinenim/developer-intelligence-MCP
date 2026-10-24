@@ -98,8 +98,10 @@ class RepositoryRagTests(unittest.TestCase):
 
         self.assertGreater(len(chunks), 1)
         self.assertTrue(all(chunk.file_path == "src/example.py" for chunk in chunks))
-        self.assertEqual(chunks[0].start_line, 1)
-        self.assertGreaterEqual(chunks[-1].end_line, chunks[-1].start_line)
+        self.assertEqual(
+            [(chunk.start_line, chunk.end_line) for chunk in chunks],
+            [(1, 2), (2, 3), (3, 4), (4, 4), (5, 5)],
+        )
         self.assertIn("beta", chunks[1].text)
 
     def test_indexing_and_retrieval_return_relevant_file_chunks(self) -> None:

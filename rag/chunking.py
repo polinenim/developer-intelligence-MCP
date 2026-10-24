@@ -25,6 +25,10 @@ def chunk_file(
     chunks: list[TextChunk] = []
     start = 0
     text_length = len(text)
+    start_line = 1
+    start_line_cursor = 0
+    end_line = 1
+    end_line_cursor = 0
     while start < text_length:
         end = min(start + chunk_size, text_length)
         if end < text_length:
@@ -32,14 +36,20 @@ def chunk_file(
             if line_break > start:
                 end = line_break + 1
 
+        start_line += text.count("\n", start_line_cursor, start)
+        start_line_cursor = start
+        end_line_offset = max(start, end - 1)
+        end_line += text.count("\n", end_line_cursor, end_line_offset)
+        end_line_cursor = end_line_offset
+
         chunk_text = text[start:end].strip()
         if chunk_text:
             chunks.append(
                 TextChunk(
                     file_path=source_file.path,
                     text=chunk_text,
-                    start_line=text.count("\n", 0, start) + 1,
-                    end_line=text.count("\n", 0, max(start, end - 1)) + 1,
+                    start_line=start_line,
+                    end_line=end_line,
                 )
             )
 
