@@ -41,8 +41,11 @@ def _read_text_file(path: Path) -> str | None:
         if path.stat().st_size > MAX_FILE_BYTES:
             return None
         with path.open("rb") as file:
-            if b"\x00" in file.read(8_192):
+            prefix = file.read(8_192)
+            if b"\x00" in prefix:
                 return None
-        return path.read_text(encoding="utf-8")
+            content = prefix + file.read()
+        text = content.decode("utf-8")
+        return text.replace("\r\n", "\n").replace("\r", "\n")
     except (OSError, UnicodeDecodeError):
         return None

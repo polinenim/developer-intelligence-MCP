@@ -88,6 +88,14 @@ class RepositoryRagTests(unittest.TestCase):
 
         self.assertEqual([file.path for file in files], ["README.md", "src/service.py"])
 
+    def test_scanner_normalizes_newlines_in_text_files(self) -> None:
+        (self.root / "src").mkdir()
+        (self.root / "src" / "line_endings.py").write_bytes(b"first\r\nsecond\rthird\n")
+
+        files = scan_repository(self.root)
+
+        self.assertEqual(files[0].content, "first\nsecond\nthird\n")
+
     def test_chunking_keeps_path_line_ranges_and_overlap(self) -> None:
         source = RepositoryFile(
             path="src/example.py",
