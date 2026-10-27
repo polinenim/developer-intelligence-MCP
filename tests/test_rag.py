@@ -134,6 +134,75 @@ class RepositoryRagTests(unittest.TestCase):
         self.assertEqual(matches[0].metadata, {"start_line": 1, "end_line": 2})
         self.assertGreater(matches[0].score, 0.9)
 
+    def test_reindexing_updates_changed_content_and_preserves_other_file_chunks(self) -> None:
+        (self.root / "src").mkdir()
+        changed_file = self.root / "src" / "changed.py"
+        changed_file.write_text("def old_version():\n    return 'old payload'\n", encoding="utf-8")
+        (self.root / "src" / "stable.py").write_text(
+            "def stable_version():\n    return 'stable payload'\n", encoding="utf-8"
+        )
+        embeddings = FakeEmbeddings()
+        store = FakeVectorStore()
+        repository_path = str(self.root.resolve())
+
+        index_repository(self.root, embeddings, store, chunk_size=200, overlap=20)
+        stable_chunks_before = [
+            indexed
+            for indexed in store.chunks[repository_path]
+            if indexed.chunk.file_path == "src/stable.py"
+        ]
+
+        changed_file.write_text(
+            "def new_version():\n    return 'updated payload'\n", encoding="utf-8"
+        )
+        index_repository(self.root, embeddings, store, chunk_size=200, overlap=20)
+
+        changed_chunks = [
+            indexed
+            for indexed in store.chunks[repository_path]
+            if indexed.chunk.file_path == "src/changed.py"
+        ]
+        stable_chunks_after = [
+            indexed
+            for indexed in store.chunks[repository_path]
+            if indexed.chunk.file_path == "src/stable.py"
+        ]
+
+        self.assertEqual(len(changed_chunks), 1)
+        self.assertIn("updated payload", changed_chunks[0].chunk.text)
+        self.assertNotIn("old payload", changed_chunks[0].chunk.text)
+        self.assertEqual(stable_chunks_after, stable_chunks_before)
+
+    def test_reindexing_removes_deleted_file_chunks_and_preserves_existing_chunks(self) -> None:
+        (self.root / "src").mkdir()
+        removed_file = self.root / "src" / "removed.py"
+        removed_file.write_text("def removed():\n    return 'stale content'\n", encoding="utf-8")
+        (self.root / "src" / "existing.py").write_text(
+            "def existing():\n    return 'current content'\n", encoding="utf-8"
+        )
+        embeddings = FakeEmbeddings()
+        store = FakeVectorStore()
+        repository_path = str(self.root.resolve())
+
+        index_repository(self.root, embeddings, store, chunk_size=200, overlap=20)
+        existing_chunks_before = [
+            indexed
+            for indexed in store.chunks[repository_path]
+            if indexed.chunk.file_path == "src/existing.py"
+        ]
+        removed_file.unlink()
+
+        index_repository(self.root, embeddings, store, chunk_size=200, overlap=20)
+
+        remaining_chunks = store.chunks[repository_path]
+        existing_chunks_after = [
+            indexed
+            for indexed in remaining_chunks
+            if indexed.chunk.file_path == "src/existing.py"
+        ]
+        self.assertFalse(any(indexed.chunk.file_path == "src/removed.py" for indexed in remaining_chunks))
+        self.assertEqual(existing_chunks_after, existing_chunks_before)
+
     def test_retrieval_matches_different_user_and_code_terminology(self) -> None:
         (self.root / "src").mkdir()
         (self.root / "src" / "auth.py").write_text(
