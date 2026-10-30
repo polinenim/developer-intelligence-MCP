@@ -203,6 +203,59 @@ class RepositoryRagTests(unittest.TestCase):
         self.assertFalse(any(indexed.chunk.file_path == "src/removed.py" for indexed in remaining_chunks))
         self.assertEqual(existing_chunks_after, existing_chunks_before)
 
+    def test_indexing_empty_repository_reports_zero_and_clears_store(self) -> None:
+        store = FakeVectorStore()
+
+        result = index_repository(self.root, FakeEmbeddings(), store)
+
+        self.assertEqual(result.files_indexed, 0)
+        self.assertEqual(result.chunks_indexed, 0)
+        self.assertEqual(store.chunks[str(self.root.resolve())], [])
+
+    def test_indexing_only_ignored_or_unsupported_files_reports_zero(self) -> None:
+        (self.root / "node_modules").mkdir()
+        (self.root / "node_modules" / "dependency.py").write_text(
+            "def ignored(): pass\n", encoding="utf-8"
+        )
+        (self.root / "notes.unsupported").write_text("not indexable", encoding="utf-8")
+        store = FakeVectorStore()
+
+        result = index_repository(self.root, FakeEmbeddings(), store)
+
+        self.assertEqual(result.files_indexed, 0)
+        self.assertEqual(result.chunks_indexed, 0)
+        self.assertEqual(store.chunks[str(self.root.resolve())], [])
+
+    def test_indexing_scanned_file_without_chunks_reports_file_and_clears_stale_chunks(self) -> None:
+        source_file = self.root / "empty.py"
+        source_file.write_text("def previous_content(): pass\n", encoding="utf-8")
+        store = FakeVectorStore()
+        repository_path = str(self.root.resolve())
+        index_repository(self.root, FakeEmbeddings(), store)
+        self.assertTrue(store.chunks[repository_path])
+
+        source_file.write_text(" \n\t\n", encoding="utf-8")
+        result = index_repository(self.root, FakeEmbeddings(), store)
+
+        self.assertEqual(result.files_indexed, 1)
+        self.assertEqual(result.chunks_indexed, 0)
+        self.assertEqual(store.chunks[repository_path], [])
+
+    def test_reindexing_after_all_files_are_removed_clears_stale_chunks(self) -> None:
+        source_file = self.root / "source.py"
+        source_file.write_text("def indexed_content(): pass\n", encoding="utf-8")
+        store = FakeVectorStore()
+        repository_path = str(self.root.resolve())
+        initial_result = index_repository(self.root, FakeEmbeddings(), store)
+        self.assertEqual(initial_result.chunks_indexed, 1)
+
+        source_file.unlink()
+        result = index_repository(self.root, FakeEmbeddings(), store)
+
+        self.assertEqual(result.files_indexed, 0)
+        self.assertEqual(result.chunks_indexed, 0)
+        self.assertEqual(store.chunks[repository_path], [])
+
     def test_retrieval_matches_different_user_and_code_terminology(self) -> None:
         (self.root / "src").mkdir()
         (self.root / "src" / "auth.py").write_text(
