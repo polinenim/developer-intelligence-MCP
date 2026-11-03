@@ -15,8 +15,28 @@ class MCPClientError(RuntimeError):
     """Raised when the repository MCP server cannot complete a request."""
 
 
+_SAFE_READ_FILE_ERRORS = (
+    ("path must not be empty", "path must not be empty."),
+    (
+        "path must point to a file inside the repository",
+        "path must point to a file inside the repository.",
+    ),
+    ("file not found: ", "file not found."),
+    ("file is not UTF-8 text: ", "file is not UTF-8 text."),
+    ("permission denied reading file: ", "permission denied reading file."),
+    ("unable to read file: ", "unable to read file."),
+)
+
+
 def _text_blocks(result: Any, tool_name: str) -> list[str]:
     if result.is_error:
+        if tool_name == "read_file":
+            for block in result.content:
+                text = getattr(block, "text", None)
+                if isinstance(text, str):
+                    for prefix, message in _SAFE_READ_FILE_ERRORS:
+                        if text.startswith(prefix):
+                            raise MCPClientError(f"MCP tool '{tool_name}' failed: {message}")
         raise MCPClientError(f"MCP tool '{tool_name}' returned an error.")
 
     return [

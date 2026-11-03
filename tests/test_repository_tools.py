@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tools.read_file import read_repository_file
 from tools.search_code import search_repository
@@ -32,8 +33,12 @@ class RepositoryToolsTests(unittest.TestCase):
         )
 
     def test_read_file_rejects_paths_outside_root(self) -> None:
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "inside the repository"):
             read_repository_file(self.root, "../outside.txt")
+
+    def test_read_file_reports_missing_files(self) -> None:
+        with self.assertRaisesRegex(FileNotFoundError, "file not found: missing.txt"):
+            read_repository_file(self.root, "missing.txt")
 
     def test_read_file_reports_non_utf8_content(self) -> None:
         invalid_text = self.root / "invalid.txt"
@@ -41,6 +46,13 @@ class RepositoryToolsTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "file is not UTF-8 text"):
             read_repository_file(self.root, "invalid.txt")
+
+    def test_read_file_reports_permission_errors(self) -> None:
+        with patch("tools.read_file.Path.read_text", side_effect=PermissionError):
+            with self.assertRaisesRegex(
+                PermissionError, "permission denied reading file: src/auth.py"
+            ):
+                read_repository_file(self.root, "src/auth.py")
 
     def test_search_code_rejects_empty_query(self) -> None:
         with self.assertRaises(ValueError):

@@ -121,6 +121,40 @@ class MCPClientTests(unittest.TestCase):
         self.assertIsNotNone(self.transport_context.exit_arguments[0])
         self.assertIsNotNone(self.session_context.exit_arguments[0])
 
+    def test_read_file_error_surfaces_known_safe_message(self):
+        self.session.call_tool.side_effect = [
+            result("src/private.py"),
+            result("permission denied reading file: sensitive repository text", is_error=True),
+        ]
+
+        with patch(
+            "agent.mcp_client.stdio_client", return_value=self.transport_context
+        ), patch(
+            "agent.mcp_client.ClientSession", return_value=self.session_context
+        ):
+            with self.assertRaisesRegex(
+                MCPClientError, "permission denied reading file"
+            ) as raised:
+                search_and_read_repository("/repo", "query")
+        self.assertNotIn("sensitive repository text", str(raised.exception))
+
+    def test_read_file_error_does_not_echo_unrecognized_tool_output(self):
+        self.session.call_tool.side_effect = [
+            result("src/private.py"),
+            result("sensitive repository text", is_error=True),
+        ]
+
+        with patch(
+            "agent.mcp_client.stdio_client", return_value=self.transport_context
+        ), patch(
+            "agent.mcp_client.ClientSession", return_value=self.session_context
+        ):
+            with self.assertRaises(MCPClientError) as raised:
+                search_and_read_repository("/repo", "query")
+
+        self.assertIn("read_file", str(raised.exception))
+        self.assertNotIn("sensitive repository text", str(raised.exception))
+
     def test_connection_failure_is_reported(self):
         with patch("agent.mcp_client.stdio_client", side_effect=OSError("offline")):
             with self.assertRaisesRegex(MCPClientError, "OSError"):

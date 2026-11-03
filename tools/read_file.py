@@ -23,3 +23,9 @@ def read_repository_file(root: Path, relative_path: str) -> str:
         return file_path.read_text(encoding="utf-8")
     except UnicodeDecodeError as error:
         raise ValueError(f"file is not UTF-8 text: {relative_path}") from error
+    except PermissionError as error:
+        raise PermissionError(f"permission denied reading file: {relative_path}") from error
+    except FileNotFoundError as error:
+        raise FileNotFoundError(f"file not found: {relative_path}") from error
+    except OSError as error:
+        raise OSError(f"unable to read file: {relative_path}") from error
