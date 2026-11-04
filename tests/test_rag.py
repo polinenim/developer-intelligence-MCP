@@ -134,6 +134,32 @@ class RepositoryRagTests(unittest.TestCase):
         self.assertEqual(matches[0].metadata, {"start_line": 1, "end_line": 2})
         self.assertGreater(matches[0].score, 0.9)
 
+    def test_retrieval_prefers_exact_terms_when_semantic_scores_tie(self) -> None:
+        (self.root / "a_generic.py").write_text("def process_data(): pass\n", encoding="utf-8")
+        (self.root / "z_exact.py").write_text("def refresh_cache(): pass\n", encoding="utf-8")
+
+        class EqualEmbeddings:
+            def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+                return [[1.0, 0.0] for _ in texts]
+
+            def embed_query(self, query: str) -> list[float]:
+                return [1.0, 0.0]
+
+        embeddings = EqualEmbeddings()
+        store = FakeVectorStore()
+        index_repository(self.root, embeddings, store)
+
+        matches = retrieve_relevant_chunks(
+            "Where is the cache refresh implemented?",
+            embeddings,
+            store,
+            root=self.root,
+            limit=2,
+        )
+
+        self.assertEqual(matches[0].file_path, "z_exact.py")
+        self.assertEqual(matches[0].score, matches[1].score)
+
     def test_reindexing_updates_changed_content_and_preserves_other_file_chunks(self) -> None:
         (self.root / "src").mkdir()
         changed_file = self.root / "src" / "changed.py"

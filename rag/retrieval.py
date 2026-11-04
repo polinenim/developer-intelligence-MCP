@@ -1,5 +1,6 @@
 """Retrieve relevant repository chunks for a natural-language query."""
 
+import re
 from pathlib import Path
 
 from rag.embeddings import EmbeddingModel
@@ -22,4 +23,13 @@ def retrieve_relevant_chunks(
         raise ValueError("limit must be greater than zero")
     repository = (root or repository_root()).expanduser().resolve()
     matches = vector_store.search(str(repository), embedding_model.embed_query(query), limit)
-    return [match for match in matches if match.score > 0]
+    query_terms = set(re.findall(r"[a-z0-9]+", query.casefold()))
+    relevant = [match for match in matches if match.score > 0]
+    return sorted(
+        relevant,
+        key=lambda match: (
+            match.score,
+            len(query_terms & set(re.findall(r"[a-z0-9]+", match.text.casefold()))),
+        ),
+        reverse=True,
+    )
