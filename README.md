@@ -11,7 +11,7 @@ Developer Intelligence MCP analyzes a software repository and answers developer 
 - **Evidence tracking:** answers include repository file paths and line ranges or web result titles and URLs.
 - **Web search:** SearXNG provides web results through its HTTP search API.
 - **Conversation history:** follow-up context is kept in process memory.
-- **Local interfaces:** a Flask `/ask` API and a minimal VS Code command that calls that API.
+- **Local interfaces:** a Flask `/ask` API and a VS Code extension with a sidebar view and Command Palette command.
 - **Automated tests:** tests cover repository tools, retrieval, agent behavior, and SearXNG response handling.
 
 ## Architecture
@@ -179,7 +179,16 @@ Start the API from the project root, with the environment variables configured a
 python -m server.agent_api
 ```
 
-It listens on `http://127.0.0.1:8765` and accepts `POST /ask` with a JSON `question` field.
+It listens on `http://127.0.0.1:8765` and accepts `POST /ask` with a JSON `question` field and an optional `repository_root`:
+
+```json
+{
+    "question": "Where is authentication handled?",
+    "repository_root": "/path/to/repository"
+}
+```
+
+The VS Code extension supplies the active workspace as `repository_root` when one is open.
 
 ### VS Code extension
 
