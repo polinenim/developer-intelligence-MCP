@@ -135,7 +135,9 @@ class RepositoryRagTests(unittest.TestCase):
         self.assertGreater(matches[0].score, 0.9)
 
     def test_retrieval_prefers_exact_terms_when_semantic_scores_tie(self) -> None:
-        (self.root / "a_generic.py").write_text("def process_data(): pass\n", encoding="utf-8")
+        (self.root / "a_generic.py").write_text(
+            "where is the implemented\n", encoding="utf-8"
+        )
         (self.root / "z_exact.py").write_text("def refresh_cache(): pass\n", encoding="utf-8")
 
         class EqualEmbeddings:
