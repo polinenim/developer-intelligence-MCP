@@ -12,6 +12,16 @@ class ConversationTests(unittest.TestCase):
     def setUp(self) -> None:
         conv_history.clear_history()
 
+    def test_history_keeps_only_the_latest_ten_turns(self):
+        for index in range(12):
+            conv_history.append_turn(f"question {index}", f"answer {index}", [])
+
+        history = conv_history.get_history()
+
+        self.assertEqual(len(history), conv_history.MAX_HISTORY_TURNS)
+        self.assertEqual(history[0]["user"], "question 2")
+        self.assertEqual(history[-1]["user"], "question 11")
+
     def test_empty_history_and_normal_question(self):
         fake_model = SimpleNamespace()
         captured = {}

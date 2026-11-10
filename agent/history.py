@@ -6,9 +6,12 @@ not persisted to any external database.
 """
 from __future__ import annotations
 
-from typing import List, Dict, Any
+from collections import deque
+from typing import Any, Deque, Dict, List
 
-_HISTORY: List[Dict[str, Any]] = []
+MAX_HISTORY_TURNS = 10
+
+_HISTORY: Deque[Dict[str, Any]] = deque(maxlen=MAX_HISTORY_TURNS)
 
 
 def get_history() -> List[Dict[str, Any]]:
