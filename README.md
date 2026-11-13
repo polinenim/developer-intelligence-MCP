@@ -188,7 +188,23 @@ It listens on `http://127.0.0.1:8765` and accepts `POST /ask` with a JSON `quest
 }
 ```
 
-The VS Code extension supplies the active workspace as `repository_root` when one is open.
+Send a request from macOS/Linux:
+
+```sh
+curl -X POST http://127.0.0.1:8765/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Where is authentication handled?","repository_root":"/path/to/repository"}'
+```
+
+Or from Windows PowerShell:
+
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:8765/ask -Method Post `
+  -ContentType "application/json" `
+  -Body '{"question":"Where is authentication handled?","repository_root":"C:\path\to\repository"}'
+```
+
+The response is JSON containing the answer, source details, and evidence. A missing or blank `question` returns HTTP 400. The VS Code extension supplies the active workspace as `repository_root` when one is open.
 
 ### VS Code extension
 

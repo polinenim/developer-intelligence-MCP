@@ -86,6 +86,17 @@ def test_ask_endpoint_monkeypatch(monkeypatch):
         )
         assert invalid_resp.status_code == 400
 
+    for invalid_root in ("", "   ", 42, []):
+        invalid_resp = client.post(
+            "/ask",
+            data=json.dumps({"question": "hello", "repository_root": invalid_root}),
+            content_type="application/json",
+        )
+        assert invalid_resp.status_code == 400
+        assert invalid_resp.get_json() == {
+            "error": "repository_root must be a non-empty string"
+        }
+
     malformed_resp = client.post("/ask", data="{", content_type="application/json")
     assert malformed_resp.status_code == 400
     assert malformed_resp.get_json() == {"error": "question is required"}

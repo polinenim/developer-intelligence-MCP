@@ -52,16 +52,18 @@ def create_app() -> Flask:
         question = data.get("question") if isinstance(data, dict) else None
         if not isinstance(question, str) or not question.strip():
             return jsonify({"error": "question is required"}), 400
+        repo_root = data.get("repository_root") if isinstance(data, dict) else None
+        if repo_root is not None and (
+            not isinstance(repo_root, str) or not repo_root.strip()
+        ):
+            return jsonify({"error": "repository_root must be a non-empty string"}), 400
+
         # Allow the client to optionally provide a repository root for this
         # request so the server can operate on the active workspace. When
         # provided we temporarily set REPOSITORY_ROOT in the process
         # environment for the duration of the request and restore it after.
-        repo_root = None
-        if isinstance(data, dict):
-            repo_root = data.get("repository_root")
-
         previous_root = os.environ.get("REPOSITORY_ROOT")
-        if repo_root:
+        if repo_root is not None:
             os.environ["REPOSITORY_ROOT"] = repo_root
 
         try:
@@ -73,7 +75,7 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc)}), 500
         finally:
             # Restore previous environment setting (or remove if none)
-            if repo_root:
+            if repo_root is not None:
                 if previous_root is None:
                     os.environ.pop("REPOSITORY_ROOT", None)
                 else:
