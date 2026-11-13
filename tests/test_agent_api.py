@@ -37,7 +37,10 @@ def test_ask_endpoint_monkeypatch(monkeypatch):
 
     # Monkeypatch Agent.ask to return a deterministic payload. Do this before
     # creating the app so the constructed Agent uses the patched method.
-    def fake_ask(self, question, limit=5):
+    asked_roots = []
+
+    def fake_ask(self, question, limit=5, root=None):
+        asked_roots.append(root)
         source_text = "def run(): pass"
         return {
             "answer": f"answered: {question}",
@@ -77,6 +80,19 @@ def test_ask_endpoint_monkeypatch(monkeypatch):
         ],
         "evidence": "src/example.py:1-1\ndef run(): pass",
     }
+    assert asked_roots == [None]
+
+    monkeypatch.setenv("REPOSITORY_ROOT", "configured-default")
+    workspace_resp = client.post(
+        "/ask",
+        data=json.dumps(
+            {"question": "hello", "repository_root": "C:\\work\\sample"}
+        ),
+        content_type="application/json",
+    )
+    assert workspace_resp.status_code == 200
+    assert asked_roots[-1] == "C:\\work\\sample"
+    assert os.environ["REPOSITORY_ROOT"] == "configured-default"
 
     for invalid_question in ("", "   ", None, 42):
         invalid_resp = client.post(

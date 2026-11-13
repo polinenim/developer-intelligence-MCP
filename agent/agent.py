@@ -8,6 +8,7 @@ behavior minimal: it only constructs the model via the existing
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
 
 from agent.core import answer_question as _core_answer_question
@@ -37,22 +38,21 @@ def answer_question(
     vector_store: Any,
     model: Optional[Any] = None,
     limit: int = 5,
+    root: Optional[str] = None,
 ) -> dict:
-    """Answer `question` against the repository configured for this process.
+    """Answer `question` against an explicit or configured repository.
 
-    This convenience wrapper uses the server's `REPOSITORY_ROOT` (via
-    `tools.repository.repository_root`) so callers don't need to pass the
-    repository path explicitly. The heavy lifting is delegated to
-    `agent.core.answer_question`.
+    When `root` is omitted, use the server's configured `REPOSITORY_ROOT`.
+    The heavy lifting is delegated to `agent.core.answer_question`.
     """
-    root = repository_root()
+    repository = Path(root).expanduser().resolve() if root else repository_root()
 
     return _core_answer_question(
         question,
         embedding_model=embedding_model,
         vector_store=vector_store,
         model=model,
-        root=root,
+        root=repository,
         limit=limit,
     )
 
@@ -84,7 +84,9 @@ class Agent:
         else:
             self.model = model
 
-    def ask(self, question: str, limit: int = 5) -> dict:
+    def ask(
+        self, question: str, limit: int = 5, root: Optional[str] = None
+    ) -> dict:
         """Ask the agent a question and return the result dict.
 
         Result shape matches `agent.core.answer_question`
@@ -96,4 +98,5 @@ class Agent:
             vector_store=self.vector_store,
             model=self.model,
             limit=limit,
+            root=root,
         )

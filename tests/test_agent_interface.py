@@ -1,5 +1,6 @@
 """Tests for the small external-facing Agent wrapper class."""
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -8,6 +9,16 @@ from rag.models import RetrievedChunk
 
 
 class AgentInterfaceTests(unittest.TestCase):
+    def test_agent_ask_uses_request_repository_root(self):
+        repository = Path.cwd() / "workspace"
+        with patch(
+            "agent.agent._core_answer_question", return_value={"answer": ""}
+        ) as answer:
+            agent = Agent(embedding_model=None, vector_store=None, model=SimpleNamespace())
+            agent.ask("How to run?", root=str(repository))
+
+        self.assertEqual(answer.call_args.kwargs["root"], repository.resolve())
+
     def test_agent_ask_uses_provided_model_and_returns_sources(self):
         fake_model = SimpleNamespace()
         fake_model.generate = lambda prompt: "CLASS ANSWER"

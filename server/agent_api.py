@@ -58,28 +58,13 @@ def create_app() -> Flask:
         ):
             return jsonify({"error": "repository_root must be a non-empty string"}), 400
 
-        # Allow the client to optionally provide a repository root for this
-        # request so the server can operate on the active workspace. When
-        # provided we temporarily set REPOSITORY_ROOT in the process
-        # environment for the duration of the request and restore it after.
-        previous_root = os.environ.get("REPOSITORY_ROOT")
-        if repo_root is not None:
-            os.environ["REPOSITORY_ROOT"] = repo_root
-
         try:
             # Construct Agent per-request to ensure the model instance is
             # freshly created in the request context.
             agent = Agent(embedding_model=embedding, vector_store=vector_store)
-            result = agent.ask(question)
+            result = agent.ask(question, root=repo_root)
         except Exception as exc:  # Keep errors local and return 500
             return jsonify({"error": str(exc)}), 500
-        finally:
-            # Restore previous environment setting (or remove if none)
-            if repo_root is not None:
-                if previous_root is None:
-                    os.environ.pop("REPOSITORY_ROOT", None)
-                else:
-                    os.environ["REPOSITORY_ROOT"] = previous_root
 
         return jsonify(result)
 
