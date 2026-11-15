@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from agent.core import answer_question as _core_answer_question
+from agent import history as conversation_history
 from server.llm_config import init_gemini_chat_model
 from tools.repository import repository_root
 
@@ -38,7 +39,8 @@ def answer_question(
     vector_store: Any,
     model: Optional[Any] = None,
     limit: int = 5,
-    root: Optional[str] = None,
+    root: str | Path | None = None,
+    conversation_id: str | None = conversation_history.DEFAULT_CONVERSATION_ID,
 ) -> dict:
     """Answer `question` against an explicit or configured repository.
 
@@ -54,6 +56,7 @@ def answer_question(
         model=model,
         root=repository,
         limit=limit,
+        conversation_id=conversation_id,
     )
 
 
@@ -85,7 +88,11 @@ class Agent:
             self.model = model
 
     def ask(
-        self, question: str, limit: int = 5, root: Optional[str] = None
+        self,
+        question: str,
+        limit: int = 5,
+        root: str | Path | None = None,
+        conversation_id: str | None = conversation_history.DEFAULT_CONVERSATION_ID,
     ) -> dict:
         """Ask the agent a question and return the result dict.
 
@@ -99,4 +106,5 @@ class Agent:
             model=self.model,
             limit=limit,
             root=root,
+            conversation_id=conversation_id,
         )

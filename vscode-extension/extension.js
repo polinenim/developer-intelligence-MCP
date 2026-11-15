@@ -1,7 +1,9 @@
 
 const vscode = require('vscode');
+const { randomUUID } = require('crypto');
 
 const API_ENDPOINT = 'http://127.0.0.1:8765/ask';
+const conversationIds = new Map();
 
 function formatAnswer(answer) {
   if (!answer) {
@@ -34,6 +36,11 @@ function activate(context) {
 
       const body = { question };
       if (repositoryRoot) body.repository_root = repositoryRoot;
+      const conversationKey = repositoryRoot || 'no-workspace';
+      if (!conversationIds.has(conversationKey)) {
+        conversationIds.set(conversationKey, randomUUID());
+      }
+      body.conversation_id = conversationIds.get(conversationKey);
 
       const resp = await fetch(API_ENDPOINT, {
         method: 'POST',

@@ -120,6 +120,35 @@ class AgentFlowTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Gemini request failed"):
                 answer_question("Which file handles retrieval?", embedding_model=None, vector_store=None, model=fake_model, root="/repo")
 
+    def test_source_failures_are_logged_and_returned(self):
+        fake_model = SimpleNamespace()
+        fake_model.generate = lambda prompt: (
+            "REPO" if prompt.startswith("TOOL_SELECTION:") else "FALLBACK ANSWER"
+        )
+
+        with patch(
+            "rag.retrieval.retrieve_relevant_chunks",
+            side_effect=RuntimeError("database unavailable"),
+        ), patch(
+            "agent.mcp_client.search_and_read_repository",
+            return_value=[("README.md", "fallback evidence")],
+        ), self.assertLogs("agent.core", level="ERROR") as logs:
+            result = answer_question(
+                "Where is auth?",
+                embedding_model=None,
+                vector_store=None,
+                model=fake_model,
+                root="/repo",
+                conversation_id=None,
+            )
+
+        self.assertIn("Repository retrieval failed", logs.output[0])
+        self.assertEqual(
+            result["source_errors"],
+            [{"source": "repository", "error": "Repository retrieval failed"}],
+        )
+        self.assertIn("fallback evidence", result["evidence"])
+
     def test_answer_falls_back_to_search_and_read(self):
         fake_model = SimpleNamespace()
         fake_model.generate = lambda prompt: "FILE ANSWER"

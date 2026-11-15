@@ -12,10 +12,14 @@ when tests provide a mocked model.
 """
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any, Optional
 
 from server.llm_config import init_gemini_chat_model
 from agent import history as conversation_history
+
+logger = logging.getLogger(__name__)
 
 
 def _decide_tools(question: str, history_block: str, model: Any) -> str:
@@ -58,8 +62,9 @@ def answer_question(
     embedding_model: Any,
     vector_store: Any,
     model: Optional[Any] = None,
-    root: Optional[str] = None,
+    root: str | Path | None = None,
     limit: int = 5,
+    conversation_id: str | None = conversation_history.DEFAULT_CONVERSATION_ID,
 ) -> dict:
     """Answer `question` using repository RAG and tools.
 
@@ -74,7 +79,7 @@ def answer_question(
     from agent.mcp_client import search_and_read_repository
 
     # Include recent conversation history to support follow-up questions.
-    history = conversation_history.get_history()
+    history = conversation_history.get_history(conversation_id)
     history_block = ""
     if history:
         parts: list[str] = []
@@ -89,16 +94,25 @@ def answer_question(
     # Based on the decision, consult repository and/or web sources.
     chunks = []
     web_results = []
+    source_errors = []
     if decision in ("REPO", "BOTH"):
         try:
             chunks = retrieve_relevant_chunks(question, embedding_model, vector_store, root=root, limit=limit)
         except Exception:
+            logger.exception("Repository retrieval failed")
+            source_errors.append(
+                {"source": "repository", "error": "Repository retrieval failed"}
+            )
             chunks = []
     if decision in ("WEB", "BOTH"):
         try:
             search_query = ((history[-1]["user"] + " " + question) if history else question)
             web_results = search_web(search_query, limit=limit)
-        except Exception as exc:
+        except Exception:
+            logger.exception("Web search failed")
+            source_errors.append(
+                {"source": "web", "error": "Web search failed"}
+            )
             web_results = []
 
     # Build evidence from retrieved chunks and web results
@@ -123,11 +137,21 @@ def answer_question(
 
     # If both are empty, fall back to repository search/read as before
     if not chunks and not web_results:
-        repository_files = search_and_read_repository(root, question, limit=limit)
-        for path, content in repository_files:
-            end_line = max(1, len(content.splitlines()))
-            evidence_lines.append(f"{path}:1-{end_line}\n{content}")
-            sources.append({"file_path": path, "start_line": 1, "end_line": end_line, "text": content, "score": None})
+        try:
+            repository_files = search_and_read_repository(root, question, limit=limit)
+        except Exception:
+            logger.exception("Repository fallback search failed")
+            source_errors.append(
+                {
+                    "source": "repository",
+                    "error": "Repository fallback search failed",
+                }
+            )
+        else:
+            for path, content in repository_files:
+                end_line = max(1, len(content.splitlines()))
+                evidence_lines.append(f"{path}:1-{end_line}\n{content}")
+                sources.append({"file_path": path, "start_line": 1, "end_line": end_line, "text": content, "score": None})
 
     evidence = "\n\n".join(evidence_lines)
 
@@ -183,15 +207,20 @@ def answer_question(
         else:
             answer_text = str(result)
 
-    result_dict = {"answer": answer_text, "sources": sources, "evidence": evidence}
+    result_dict = {
+        "answer": answer_text,
+        "sources": sources,
+        "evidence": evidence,
+        "source_errors": source_errors,
+    }
 
     
 
-# Persist the new conversation turn in memory for the running session.
     try:
-        conversation_history.append_turn(question, answer_text, sources)
+        conversation_history.append_turn(
+            question, answer_text, sources, conversation_id
+        )
     except Exception:
-        # History is best-effort; do not fail the request if saving history fails.
-        pass
+        logger.exception("Failed to save conversation history")
 
     return result_dict

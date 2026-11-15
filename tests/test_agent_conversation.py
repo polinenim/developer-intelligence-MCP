@@ -22,6 +22,70 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(history[0]["user"], "question 2")
         self.assertEqual(history[-1]["user"], "question 11")
 
+    def test_histories_are_isolated_by_conversation_id(self):
+        conv_history.append_turn("question A", "answer A", [], "conversation-a")
+        conv_history.append_turn("question B", "answer B", [], "conversation-b")
+
+        self.assertEqual(
+            [turn["user"] for turn in conv_history.get_history("conversation-a")],
+            ["question A"],
+        )
+        self.assertEqual(
+            [turn["user"] for turn in conv_history.get_history("conversation-b")],
+            ["question B"],
+        )
+        self.assertEqual(conv_history.get_history(None), [])
+
+    def test_follow_up_context_is_isolated_by_conversation_id(self):
+        prompts = []
+        fake_model = SimpleNamespace()
+
+        def generate(prompt):
+            prompts.append(prompt)
+            if prompt.startswith("TOOL_SELECTION:"):
+                return "REPO"
+            return f"answer-{len(prompts)}"
+
+        fake_model.generate = generate
+        chunk = RetrievedChunk(
+            file_path="auth.py",
+            text="def authenticate(): pass",
+            score=0.9,
+            metadata={"start_line": 1, "end_line": 1},
+        )
+
+        with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[chunk]):
+            agent_core.answer_question(
+                "Question from A",
+                embedding_model=None,
+                vector_store=None,
+                model=fake_model,
+                root="/repo",
+                conversation_id="conversation-a",
+            )
+            agent_core.answer_question(
+                "Question from B",
+                embedding_model=None,
+                vector_store=None,
+                model=fake_model,
+                root="/repo",
+                conversation_id="conversation-b",
+            )
+            agent_core.answer_question(
+                "Follow-up from A",
+                embedding_model=None,
+                vector_store=None,
+                model=fake_model,
+                root="/repo",
+                conversation_id="conversation-a",
+            )
+
+        follow_up_prompt = prompts[-1]
+        self.assertIn("Question from A", follow_up_prompt)
+        self.assertIn("answer-2", follow_up_prompt)
+        self.assertNotIn("Question from B", follow_up_prompt)
+        self.assertNotIn("answer-4", follow_up_prompt)
+
     def test_empty_history_and_normal_question(self):
         fake_model = SimpleNamespace()
         captured = {}
