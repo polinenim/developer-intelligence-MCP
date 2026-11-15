@@ -184,7 +184,8 @@ It listens on `http://127.0.0.1:8765` and accepts `POST /ask` with a JSON `quest
 ```json
 {
     "question": "Where is authentication handled?",
-    "repository_root": "/path/to/repository"
+    "repository_root": "/path/to/repository",
+    "conversation_id": "optional-client-generated-id"
 }
 ```
 
@@ -204,7 +205,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8765/ask -Method Post `
   -Body '{"question":"Where is authentication handled?","repository_root":"C:\path\to\repository"}'
 ```
 
-The response is JSON containing the answer, source details, and evidence. A missing or blank `question` returns HTTP 400. The VS Code extension supplies the active workspace as `repository_root` when one is open.
+`conversation_id` is optional; reuse an ID to keep follow-up context between requests. Requests without one are not added to conversation history. The response is JSON containing the answer, source details, and evidence; `source_errors` reports repository or web sources that could not be reached. A missing or blank `question`, a question over 4,000 characters, an invalid conversation ID, or a `repository_root` that is not an existing directory returns HTTP 400. Request bodies over 64 KiB return HTTP 413. The VS Code extension supplies the active workspace as `repository_root` and maintains a conversation ID per workspace for follow-up questions.
 
 ### VS Code extension
 

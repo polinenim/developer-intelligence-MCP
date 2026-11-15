@@ -12,13 +12,20 @@ Tests should monkeypatch the heavy dependencies before calling
 """
 from __future__ import annotations
 
-from typing import Any
+import logging
+from pathlib import Path
 import os
 from flask import Flask, request, jsonify
 
 from rag.embeddings import LocalSentenceTransformerEmbeddings
 from rag.vector_store import PostgresVectorStore
-from agent.agent import Agent, get_agent_model
+from agent.agent import Agent
+
+logger = logging.getLogger(__name__)
+
+MAX_QUESTION_LENGTH = 4000
+MAX_CONVERSATION_ID_LENGTH = 128
+MAX_REQUEST_BYTES = 64 * 1024
 
 
 def create_app() -> Flask:
@@ -31,6 +38,12 @@ def create_app() -> Flask:
     `create_app()` so they can provide lightweight fakes.
     """
     app = Flask(__name__)
+    app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES
+
+    @app.errorhandler(413)
+    def request_too_large(error):
+        logger.warning("Rejected oversized request: %s", error)
+        return jsonify({"error": "request body is too large"}), 413
 
     database_url = os.environ.get("DATABASE_URL", "")
 
@@ -52,19 +65,55 @@ def create_app() -> Flask:
         question = data.get("question") if isinstance(data, dict) else None
         if not isinstance(question, str) or not question.strip():
             return jsonify({"error": "question is required"}), 400
+        if len(question) > MAX_QUESTION_LENGTH:
+            return jsonify(
+                {"error": f"question must be at most {MAX_QUESTION_LENGTH} characters"}
+            ), 400
         repo_root = data.get("repository_root") if isinstance(data, dict) else None
         if repo_root is not None and (
             not isinstance(repo_root, str) or not repo_root.strip()
         ):
             return jsonify({"error": "repository_root must be a non-empty string"}), 400
+        if repo_root is not None:
+            try:
+                resolved_root = Path(repo_root).expanduser().resolve(strict=True)
+            except (OSError, RuntimeError, ValueError):
+                return jsonify(
+                    {"error": "repository_root must be an existing directory"}
+                ), 400
+            if not resolved_root.is_dir():
+                return jsonify(
+                    {"error": "repository_root must be an existing directory"}
+                ), 400
+            repo_root = str(resolved_root)
+
+        conversation_id = (
+            data.get("conversation_id") if isinstance(data, dict) else None
+        )
+        if conversation_id is not None and (
+            not isinstance(conversation_id, str)
+            or not conversation_id.strip()
+            or len(conversation_id) > MAX_CONVERSATION_ID_LENGTH
+        ):
+            return jsonify(
+                {
+                    "error": (
+                        "conversation_id must be a non-empty string of at most "
+                        f"{MAX_CONVERSATION_ID_LENGTH} characters"
+                    )
+                }
+            ), 400
 
         try:
             # Construct Agent per-request to ensure the model instance is
             # freshly created in the request context.
             agent = Agent(embedding_model=embedding, vector_store=vector_store)
-            result = agent.ask(question, root=repo_root)
-        except Exception as exc:  # Keep errors local and return 500
-            return jsonify({"error": str(exc)}), 500
+            result = agent.ask(
+                question, root=repo_root, conversation_id=conversation_id
+            )
+        except Exception:
+            logger.exception("Agent request failed")
+            return jsonify({"error": "Agent request failed"}), 500
 
         return jsonify(result)
 
