@@ -3,6 +3,8 @@ const vscode = require('vscode');
 const { randomUUID } = require('crypto');
 
 const API_ENDPOINT = 'http://127.0.0.1:8765/ask';
+const MAX_QUESTION_LENGTH = 4000;
+const REQUEST_TIMEOUT_MS = 30_000;
 const conversationIds = new Map();
 
 function formatAnswer(answer) {
@@ -24,6 +26,23 @@ function activate(context) {
   );
 
   async function askAgent(question) {
+    const normalizedQuestion =
+      typeof question === 'string' ? question.trim() : '';
+
+    if (!normalizedQuestion) {
+      vscode.window.showWarningMessage('Enter a question before asking the agent.');
+      return;
+    }
+    if (normalizedQuestion.length > MAX_QUESTION_LENGTH) {
+      vscode.window.showWarningMessage(
+        `Question is too long. Use ${MAX_QUESTION_LENGTH.toLocaleString()} characters or fewer.`
+      );
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     try {
       // Determine the active workspace folder (if any) and include it
       // so the backend can operate on the opened repository. Handle the
@@ -34,7 +53,7 @@ function activate(context) {
           ? workspaceFolders[0].uri.fsPath
           : null;
 
-      const body = { question };
+      const body = { question: normalizedQuestion };
       if (repositoryRoot) body.repository_root = repositoryRoot;
       const conversationKey = repositoryRoot || 'no-workspace';
       if (!conversationIds.has(conversationKey)) {
@@ -46,28 +65,56 @@ function activate(context) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
 
       if (!resp.ok) {
-        const errorText = await resp.text();
-        vscode.window.showErrorMessage('Agent error: ' + errorText);
+        let errorMessage = `Request failed (${resp.status})`;
+        const responseText = (await resp.text()).trim();
+        if (responseText) {
+          try {
+            const errorJson = JSON.parse(responseText);
+            if (typeof errorJson.error === 'string') {
+              errorMessage = errorJson.error;
+            }
+          } catch {
+            errorMessage = responseText;
+          }
+        }
+        vscode.window.showErrorMessage(`Agent error: ${errorMessage}`);
         return;
       }
 
-      const json = await resp.json();
+      let json;
+      try {
+        json = JSON.parse(await resp.text());
+      } catch {
+        vscode.window.showErrorMessage(
+          'Agent API returned an invalid response.'
+        );
+        return;
+      }
       const answer = formatAnswer(
         json.answer || 'No answer returned.'
       );
 
-      output.appendLine(`You: ${question}`);
+      output.appendLine(`You: ${normalizedQuestion}`);
       output.appendLine(`Agent: ${answer}`);
       output.appendLine('');
 
       output.show(true);
     } catch (err) {
+      if (err && err.name === 'AbortError') {
+        vscode.window.showErrorMessage(
+          'Agent request timed out. Check that the local agent API is running.'
+        );
+        return;
+      }
       vscode.window.showErrorMessage(
         'Could not contact local agent API: ' + String(err)
       );
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
