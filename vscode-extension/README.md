@@ -4,6 +4,7 @@ A local VS Code extension that connects to the Developer Intelligence MCP agent 
 ## Features
 
 - Dedicated Activity Bar icon and sidebar.
+- Separate ChatGPT-style chat panel with message history.
 - Ask questions about your repository.
 - Connects to the local Python agent API.
 - Displays agent responses in the Developer Intelligence Output Channel.
@@ -29,7 +30,7 @@ python -m server.agent_api
 ```
 5. Open the `vscode-extension` folder as the extension root in a VS Code window.
 6. Press `F5` to launch the Extension Development Host.
-7. Open the Developer Intelligence sidebar, enter a question, and click **Ask**.
+7. Open the Developer Intelligence sidebar, enter a question, and click **Ask**, or run **Developer Intelligence: Open Chat Panel** from the Command Palette.
 The local API runs at `http://127.0.0.1:8765`.
 
 ## Tests

@@ -209,7 +209,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8765/ask -Method Post `
 
 ### VS Code extension
 
-Start the Flask API first. Open `vscode-extension/` as the extension root in VS Code, press **F5** to launch an Extension Development Host, then run **Developer Intelligence: Ask Question** from the Command Palette. The extension sends the question to the local Flask endpoint.
+Start the Flask API first. Open `vscode-extension/` as the extension root in VS Code and press **F5** to launch an Extension Development Host. Use **Developer Intelligence: Open Chat Panel** for the dedicated chat panel, or continue using **Developer Intelligence: Ask Question** and the existing sidebar. The extension sends questions to the local Flask endpoint.
 
 ### MCP server
 
