@@ -8,6 +8,7 @@
   },
   "activationEvents": [
     "onCommand:developerIntelligence.askQuestion",
+    "onCommand:developerIntelligence.openChatPanel",
     "onView:developerIntelligence.askView"
   ],
   "main": "./extension.js",
@@ -16,6 +17,10 @@
       {
         "command": "developerIntelligence.askQuestion",
         "title": "Developer Intelligence: Ask Question"
+      },
+      {
+        "command": "developerIntelligence.openChatPanel",
+        "title": "Developer Intelligence: Open Chat Panel"
       }
     ],
     "viewsContainers": {
