@@ -1,15 +1,16 @@
-"""Simple in-memory conversation history for the running agent session.
+"""Conversation history backed by memory or PostgreSQL.
 
-This module provides a tiny append-only history that lives in-process.
-It is intentionally simple: stored in a list, resettable for tests, and
-not persisted to any external database.
+The module-level helpers preserve the original in-memory behavior. The
+PostgreSQL store persists turns for API use without changing callers that do
+not configure persistent history.
 """
 from __future__ import annotations
 
+import json
 from collections import deque
 from collections import OrderedDict
 from threading import RLock
-from typing import Any, Deque, Dict, List
+from typing import Any, Deque, Dict, List, Protocol
 
 MAX_HISTORY_TURNS = 10
 MAX_CONVERSATIONS = 256
@@ -17,6 +18,128 @@ DEFAULT_CONVERSATION_ID = "default"
 
 _HISTORIES: OrderedDict[str, Deque[Dict[str, Any]]] = OrderedDict()
 _LOCK = RLock()
+
+
+class HistoryStore(Protocol):
+    """Storage interface used by the agent for conversation turns."""
+
+    def get_history(
+        self, conversation_id: str | None = DEFAULT_CONVERSATION_ID
+    ) -> List[Dict[str, Any]]:
+        """Return turns in chronological order."""
+        ...
+
+    def append_turn(
+        self,
+        user: str,
+        assistant: str,
+        sources: List[Dict[str, Any]],
+        conversation_id: str | None = DEFAULT_CONVERSATION_ID,
+    ) -> None:
+        """Append a turn to one conversation."""
+        ...
+
+
+class PostgresConversationHistory:
+    """Persist recent conversation turns in the configured PostgreSQL DB."""
+
+    def __init__(self, database_url: str) -> None:
+        if not database_url.strip():
+            raise ValueError("database_url must not be empty")
+        self.database_url = database_url
+
+    def get_history(
+        self, conversation_id: str | None = DEFAULT_CONVERSATION_ID
+    ) -> List[Dict[str, Any]]:
+        if conversation_id is None:
+            return []
+
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                self._ensure_schema(cursor)
+                cursor.execute(
+                    """
+                    SELECT user_message, assistant_message, sources
+                    FROM conversation_turns
+                    WHERE conversation_id = %s
+                    ORDER BY id DESC
+                    LIMIT %s
+                    """,
+                    (conversation_id, MAX_HISTORY_TURNS),
+                )
+                rows = cursor.fetchall()
+
+        turns = []
+        for user, assistant, sources in reversed(rows):
+            if isinstance(sources, str):
+                sources = json.loads(sources)
+            turns.append(
+                {"user": user, "assistant": assistant, "sources": sources}
+            )
+        return turns
+
+    def append_turn(
+        self,
+        user: str,
+        assistant: str,
+        sources: List[Dict[str, Any]],
+        conversation_id: str | None = DEFAULT_CONVERSATION_ID,
+    ) -> None:
+        if conversation_id is None:
+            return
+
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                self._ensure_schema(cursor)
+                cursor.execute(
+                    """
+                    INSERT INTO conversation_turns
+                        (conversation_id, user_message, assistant_message, sources)
+                    VALUES (%s, %s, %s, %s::jsonb)
+                    """,
+                    (conversation_id, user, assistant, json.dumps(sources)),
+                )
+                cursor.execute(
+                    """
+                    DELETE FROM conversation_turns
+                    WHERE conversation_id = %s
+                      AND id NOT IN (
+                          SELECT id
+                          FROM conversation_turns
+                          WHERE conversation_id = %s
+                          ORDER BY id DESC
+                          LIMIT %s
+                      )
+                    """,
+                    (conversation_id, conversation_id, MAX_HISTORY_TURNS),
+                )
+
+    @staticmethod
+    def _ensure_schema(cursor) -> None:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversation_turns (
+                id BIGSERIAL PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                user_message TEXT NOT NULL,
+                assistant_message TEXT NOT NULL,
+                sources JSONB NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS conversation_turns_conversation_id_id_idx
+            ON conversation_turns (conversation_id, id DESC)
+            """
+        )
+
+    def _connect(self):
+        try:
+            from psycopg import connect
+        except ImportError as error:
+            raise RuntimeError("Install psycopg before using PostgreSQL storage.") from error
+        return connect(self.database_url)
 
 
 def get_history(

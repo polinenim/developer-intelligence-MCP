@@ -20,6 +20,7 @@ from flask import Flask, request, jsonify
 from rag.embeddings import LocalSentenceTransformerEmbeddings
 from rag.vector_store import PostgresVectorStore
 from agent.agent import Agent
+from agent.history import PostgresConversationHistory
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,9 @@ def create_app() -> Flask:
     # if they need to avoid heavy dependencies.
     embedding = LocalSentenceTransformerEmbeddings()
     vector_store = PostgresVectorStore(database_url)
+    history_store = (
+        PostgresConversationHistory(database_url) if database_url.strip() else None
+    )
 
     # NOTE: construct the Agent per-request below instead of reusing a single
     # Agent/model instance created at startup. Some model adapters are not
@@ -107,7 +111,11 @@ def create_app() -> Flask:
         try:
             # Construct Agent per-request to ensure the model instance is
             # freshly created in the request context.
-            agent = Agent(embedding_model=embedding, vector_store=vector_store)
+            agent = Agent(
+                embedding_model=embedding,
+                vector_store=vector_store,
+                history_store=history_store,
+            )
             result = agent.ask(
                 question, root=repo_root, conversation_id=conversation_id
             )

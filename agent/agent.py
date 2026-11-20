@@ -41,6 +41,7 @@ def answer_question(
     limit: int = 5,
     root: str | Path | None = None,
     conversation_id: str | None = conversation_history.DEFAULT_CONVERSATION_ID,
+    history_store: conversation_history.HistoryStore | None = None,
 ) -> dict:
     """Answer `question` against an explicit or configured repository.
 
@@ -57,6 +58,7 @@ def answer_question(
         root=repository,
         limit=limit,
         conversation_id=conversation_id,
+        history_store=history_store,
     )
 
 
@@ -75,9 +77,11 @@ class Agent:
         model: Optional[Any] = None,
         api_key: Optional[str] = None,
         model_name: str = "gemini-3.6-flash",
+        history_store: conversation_history.HistoryStore | None = None,
     ) -> None:
         self.embedding_model = embedding_model
         self.vector_store = vector_store
+        self.history_store = history_store
 
         if model is None:
             self.model = get_agent_model(
@@ -107,4 +111,5 @@ class Agent:
             limit=limit,
             root=root,
             conversation_id=conversation_id,
+            history_store=self.history_store,
         )

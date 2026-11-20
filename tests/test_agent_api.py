@@ -39,10 +39,12 @@ def test_ask_endpoint_monkeypatch(monkeypatch, tmp_path):
     # creating the app so the constructed Agent uses the patched method.
     asked_roots = []
     asked_conversations = []
+    configured_history_stores = []
 
     def fake_ask(self, question, limit=5, root=None, conversation_id=None):
         asked_roots.append(root)
         asked_conversations.append(conversation_id)
+        configured_history_stores.append(self.history_store)
         if question == "trigger error":
             raise RuntimeError("internal detail")
         source_text = "def run(): pass"
@@ -86,6 +88,7 @@ def test_ask_endpoint_monkeypatch(monkeypatch, tmp_path):
     }
     assert asked_roots == [None]
     assert asked_conversations == [None]
+    assert configured_history_stores[0] is not None
 
     monkeypatch.setenv("REPOSITORY_ROOT", "configured-default")
     workspace_resp = client.post(

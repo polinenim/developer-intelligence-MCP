@@ -65,6 +65,7 @@ def answer_question(
     root: str | Path | None = None,
     limit: int = 5,
     conversation_id: str | None = conversation_history.DEFAULT_CONVERSATION_ID,
+    history_store: conversation_history.HistoryStore | None = None,
 ) -> dict:
     """Answer `question` using repository RAG and tools.
 
@@ -79,7 +80,14 @@ def answer_question(
     from agent.mcp_client import search_and_read_repository
 
     # Include recent conversation history to support follow-up questions.
-    history = conversation_history.get_history(conversation_id)
+    history_backend = (
+        history_store if history_store is not None else conversation_history
+    )
+    try:
+        history = history_backend.get_history(conversation_id)
+    except Exception:
+        logger.exception("Failed to load conversation history")
+        history = []
     history_block = ""
     if history:
         parts: list[str] = []
@@ -217,9 +225,7 @@ def answer_question(
     
 
     try:
-        conversation_history.append_turn(
-            question, answer_text, sources, conversation_id
-        )
+        history_backend.append_turn(question, answer_text, sources, conversation_id)
     except Exception:
         logger.exception("Failed to save conversation history")
 
