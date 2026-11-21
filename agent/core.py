@@ -88,6 +88,7 @@ def answer_question(
     except Exception:
         logger.exception("Failed to load conversation history")
         history = []
+    history = history[-conversation_history.MAX_HISTORY_TURNS:]
     history_block = ""
     if history:
         parts: list[str] = []

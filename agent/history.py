@@ -13,6 +13,7 @@ from threading import RLock
 from typing import Any, Deque, Dict, List, Protocol
 
 MAX_HISTORY_TURNS = 10
+MAX_PERSISTED_HISTORY_TURNS = 20
 MAX_CONVERSATIONS = 256
 DEFAULT_CONVERSATION_ID = "default"
 
@@ -65,7 +66,7 @@ class PostgresConversationHistory:
                     ORDER BY id DESC
                     LIMIT %s
                     """,
-                    (conversation_id, MAX_HISTORY_TURNS),
+                    (conversation_id, MAX_PERSISTED_HISTORY_TURNS),
                 )
                 rows = cursor.fetchall()
 
@@ -111,7 +112,11 @@ class PostgresConversationHistory:
                           LIMIT %s
                       )
                     """,
-                    (conversation_id, conversation_id, MAX_HISTORY_TURNS),
+                    (
+                        conversation_id,
+                        conversation_id,
+                        MAX_PERSISTED_HISTORY_TURNS,
+                    ),
                 )
 
     @staticmethod

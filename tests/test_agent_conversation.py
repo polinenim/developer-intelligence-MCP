@@ -235,7 +235,7 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(s['text'], "create_token()")
         self.assertAlmostEqual(s['score'], 0.85)
 
-    def test_postgres_history_survives_manager_recreation_and_keeps_latest_ten(self):
+    def test_postgres_history_survives_manager_recreation_and_keeps_latest_twenty(self):
         database = FakePostgresDatabase()
 
         def connect(_store):
@@ -247,7 +247,7 @@ class ConversationTests(unittest.TestCase):
             first_manager = conv_history.PostgresConversationHistory(
                 "postgresql://unused"
             )
-            for index in range(12):
+            for index in range(25):
                 first_manager.append_turn(
                     f"question {index}",
                     f"answer {index}",
@@ -260,10 +260,10 @@ class ConversationTests(unittest.TestCase):
             )
             history = recreated_manager.get_history("conversation-a")
 
-        self.assertEqual(len(history), conv_history.MAX_HISTORY_TURNS)
-        self.assertEqual(history[0]["user"], "question 2")
-        self.assertEqual(history[-1]["user"], "question 11")
-        self.assertEqual(history[0]["sources"], [{"file_path": "file-2.py"}])
+        self.assertEqual(len(history), conv_history.MAX_PERSISTED_HISTORY_TURNS)
+        self.assertEqual(history[0]["user"], "question 5")
+        self.assertEqual(history[-1]["user"], "question 24")
+        self.assertEqual(history[0]["sources"], [{"file_path": "file-5.py"}])
 
     def test_postgres_history_separates_conversation_ids(self):
         database = FakePostgresDatabase()
@@ -364,6 +364,50 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(len(logs.output), 2)
         self.assertIn("Failed to load conversation history", logs.output[0])
         self.assertIn("Failed to save conversation history", logs.output[1])
+
+    def test_prompt_uses_only_latest_ten_of_persisted_history(self):
+        prompts = []
+        fake_model = SimpleNamespace()
+
+        def generate(prompt):
+            prompts.append(prompt)
+            return "REPO" if prompt.startswith("TOOL_SELECTION:") else "ANSWER"
+
+        fake_model.generate = generate
+        chunk = RetrievedChunk(
+            file_path="auth.py",
+            text="def authenticate(): pass",
+            score=0.9,
+            metadata={"start_line": 1, "end_line": 1},
+        )
+        history = [
+            {"user": f"question {index}", "assistant": f"answer {index}"}
+            for index in range(conv_history.MAX_PERSISTED_HISTORY_TURNS)
+        ]
+
+        class StoredHistory:
+            def get_history(self, conversation_id):
+                return history
+
+            def append_turn(self, user, assistant, sources, conversation_id):
+                pass
+
+        with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[chunk]):
+            agent_core.answer_question(
+                "current question",
+                embedding_model=None,
+                vector_store=None,
+                model=fake_model,
+                root="/repo",
+                conversation_id="conversation-a",
+                history_store=StoredHistory(),
+            )
+
+        answer_prompt = prompts[-1]
+        self.assertIn("question 10", answer_prompt)
+        self.assertIn("question 19", answer_prompt)
+        self.assertNotIn("question 9", answer_prompt)
+        self.assertNotIn("answer 9", answer_prompt)
 
 
 if __name__ == "__main__":
