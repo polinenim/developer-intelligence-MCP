@@ -134,6 +134,52 @@ class RepositoryRagTests(unittest.TestCase):
         self.assertEqual(matches[0].metadata, {"start_line": 1, "end_line": 2})
         self.assertGreater(matches[0].score, 0.9)
 
+    def test_indexing_embeds_duplicate_text_once_and_preserves_chunk_metadata(self) -> None:
+        (self.root / "src").mkdir()
+        (self.root / "src" / "a.py").write_text("skip\nsame\n", encoding="utf-8")
+        (self.root / "src" / "b.py").write_text("same\n", encoding="utf-8")
+        (self.root / "src" / "c.py").write_text("Same\n", encoding="utf-8")
+
+        class CountingEmbeddings:
+            def __init__(self) -> None:
+                self.embedded_texts: list[str] = []
+
+            def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+                self.embedded_texts = list(texts)
+                return [[float(index + 1), 0.0] for index, _ in enumerate(texts)]
+
+        embeddings = CountingEmbeddings()
+        store = FakeVectorStore()
+        result = index_repository(
+            self.root, embeddings, store, chunk_size=5, overlap=0
+        )
+        indexed_chunks = store.chunks[str(self.root.resolve())]
+        same_chunks = [
+            item for item in indexed_chunks if item.chunk.text == "same"
+        ]
+        different_text_chunk = next(
+            item for item in indexed_chunks if item.chunk.text == "Same"
+        )
+
+        self.assertEqual(result.chunks_indexed, 4)
+        self.assertEqual(embeddings.embedded_texts, ["skip", "same", "Same"])
+        self.assertEqual(
+            [
+                (
+                    item.chunk.file_path,
+                    item.chunk.start_line,
+                    item.chunk.end_line,
+                )
+                for item in same_chunks
+            ],
+            [("src/a.py", 2, 2), ("src/b.py", 1, 1)],
+        )
+        self.assertEqual(
+            [item.embedding for item in same_chunks],
+            [[2.0, 0.0], [2.0, 0.0]],
+        )
+        self.assertEqual(different_text_chunk.embedding, [3.0, 0.0])
+
     def test_retrieval_prefers_exact_terms_when_semantic_scores_tie(self) -> None:
         (self.root / "a_generic.py").write_text(
             "where is the implemented\n", encoding="utf-8"

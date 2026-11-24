@@ -26,13 +26,18 @@ def index_repository(
         for source_file in files
         for chunk in chunk_file(source_file, chunk_size=chunk_size, overlap=overlap)
     ]
-    embeddings = embedding_model.embed_documents([chunk.text for chunk in chunks])
-    if len(embeddings) != len(chunks):
+    unique_texts = list(dict.fromkeys(chunk.text for chunk in chunks))
+    unique_embeddings = embedding_model.embed_documents(unique_texts)
+    if len(unique_embeddings) != len(unique_texts):
         raise ValueError("embedding model returned an unexpected number of vectors")
 
+    embeddings_by_text = dict(zip(unique_texts, unique_embeddings, strict=True))
     indexed_chunks = [
-        IndexedChunk(chunk=chunk, embedding=embedding)
-        for chunk, embedding in zip(chunks, embeddings, strict=True)
+        IndexedChunk(
+            chunk=chunk,
+            embedding=list(embeddings_by_text[chunk.text]),
+        )
+        for chunk in chunks
     ]
     vector_store.replace_repository_chunks(str(repository), indexed_chunks)
     return IndexingResult(files_indexed=len(files), chunks_indexed=len(indexed_chunks))
