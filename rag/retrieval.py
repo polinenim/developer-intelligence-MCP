@@ -29,7 +29,10 @@ def retrieve_relevant_chunks(
     if limit <= 0:
         raise ValueError("limit must be greater than zero")
     repository = (root or repository_root()).expanduser().resolve()
-    matches = vector_store.search(str(repository), embedding_model.embed_query(query), limit)
+    candidate_limit = limit * 3
+    matches = vector_store.search(
+        str(repository), embedding_model.embed_query(query), candidate_limit
+    )
     query_terms = set(re.findall(r"[a-z0-9]+", query.casefold())) - _LEXICAL_STOP_WORDS
     relevant = [match for match in matches if match.score > 0]
     return sorted(
@@ -42,4 +45,4 @@ def retrieve_relevant_chunks(
             ),
         ),
         reverse=True,
-    )
+    )[:limit]

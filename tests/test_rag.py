@@ -162,6 +162,47 @@ class RepositoryRagTests(unittest.TestCase):
         self.assertEqual(matches[0].file_path, "z_exact.py")
         self.assertEqual(matches[0].score, matches[1].score)
 
+    def test_retrieval_overfetches_before_lexical_tie_breaking(self) -> None:
+        generic = RetrievedChunk(
+            file_path="a_generic.py",
+            text="def update_state(): pass",
+            score=0.8,
+            metadata={"start_line": 1, "end_line": 1},
+        )
+        exact = RetrievedChunk(
+            file_path="z_exact.py",
+            text="def refresh_cache(): pass",
+            score=0.8,
+            metadata={"start_line": 4, "end_line": 4},
+        )
+
+        class TiedEmbeddings:
+            def embed_query(self, query: str) -> list[float]:
+                return [1.0, 0.0]
+
+        class TruncatingVectorStore:
+            def __init__(self) -> None:
+                self.requested_limit = None
+
+            def search(
+                self, repository_path: str, query_embedding: Sequence[float], limit: int
+            ) -> list[RetrievedChunk]:
+                self.requested_limit = limit
+                return [generic, exact][:limit]
+
+        store = TruncatingVectorStore()
+        matches = retrieve_relevant_chunks(
+            "Where is the cache refresh implemented?",
+            TiedEmbeddings(),
+            store,
+            root=self.root,
+            limit=1,
+        )
+
+        self.assertEqual(store.requested_limit, 3)
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0], exact)
+
     def test_reindexing_updates_changed_content_and_preserves_other_file_chunks(self) -> None:
         (self.root / "src").mkdir()
         changed_file = self.root / "src" / "changed.py"
