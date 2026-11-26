@@ -29,6 +29,19 @@ MAX_CONVERSATION_ID_LENGTH = 128
 MAX_REQUEST_BYTES = 64 * 1024
 
 
+def _is_valid_agent_response(result: object) -> bool:
+    """Check the stable response fields expected from Agent.ask()."""
+    if not isinstance(result, dict):
+        return False
+    if not isinstance(result.get("answer"), str):
+        return False
+    if not isinstance(result.get("sources"), list):
+        return False
+    if not isinstance(result.get("evidence"), str):
+        return False
+    return "source_errors" not in result or isinstance(result["source_errors"], list)
+
+
 def create_app() -> Flask:
     """Create and configure the Flask app and a single Agent instance.
 
@@ -123,7 +136,15 @@ def create_app() -> Flask:
             logger.exception("Agent request failed")
             return jsonify({"error": "Agent request failed"}), 500
 
-        return jsonify(result)
+        if not _is_valid_agent_response(result):
+            logger.error("Agent returned a response with an invalid shape")
+            return jsonify({"error": "Agent returned an invalid response"}), 502
+
+        try:
+            return jsonify(result)
+        except (TypeError, ValueError):
+            logger.exception("Agent returned a response that could not be serialized")
+            return jsonify({"error": "Agent returned an invalid response"}), 502
 
     return app
 

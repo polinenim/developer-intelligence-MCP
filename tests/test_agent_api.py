@@ -47,6 +47,16 @@ def test_ask_endpoint_monkeypatch(monkeypatch, tmp_path):
         configured_history_stores.append(self.history_store)
         if question == "trigger error":
             raise RuntimeError("internal detail")
+        if question == "invalid agent response":
+            return {"answer": [], "sources": [], "evidence": ""}
+        if question == "unserializable agent response":
+            return {
+                "answer": "answer",
+                "sources": [{"bad_value": object()}],
+                "evidence": "",
+            }
+        if question == "empty agent answer":
+            return {"answer": "", "sources": [], "evidence": "", "source_errors": []}
         source_text = "def run(): pass"
         return {
             "answer": f"answered: {question}",
@@ -89,6 +99,34 @@ def test_ask_endpoint_monkeypatch(monkeypatch, tmp_path):
     assert asked_roots == [None]
     assert asked_conversations == [None]
     assert configured_history_stores[0] is not None
+
+    empty_answer_resp = client.post(
+        "/ask",
+        data=json.dumps({"question": "empty agent answer"}),
+        content_type="application/json",
+    )
+    assert empty_answer_resp.status_code == 200
+    assert empty_answer_resp.get_json() == {
+        "answer": "",
+        "sources": [],
+        "evidence": "",
+        "source_errors": [],
+    }
+
+    for invalid_response_question in (
+        "invalid agent response",
+        "unserializable agent response",
+    ):
+        invalid_response = client.post(
+            "/ask",
+            data=json.dumps({"question": invalid_response_question}),
+            content_type="application/json",
+        )
+        assert invalid_response.status_code == 502
+        assert invalid_response.get_json() == {
+            "error": "Agent returned an invalid response"
+        }
+        assert "bad_value" not in invalid_response.get_data(as_text=True)
 
     monkeypatch.setenv("REPOSITORY_ROOT", "configured-default")
     workspace_resp = client.post(
