@@ -1,7 +1,32 @@
 services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: developer-intelligence-mcp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-developer_intelligence}
+      POSTGRES_USER: ${POSTGRES_USER:-developer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your shell or local .env file}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init/10-initialize.sql:/docker-entrypoint-initdb.d/10-initialize.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   searxng:
     image: searxng/searxng:latest
+    container_name: developer-intelligence-mcp-searxng
+    restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+
+volumes:
+  postgres_data:
