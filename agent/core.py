@@ -13,6 +13,7 @@ when tests provide a mocked model.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,35 +22,23 @@ from agent import history as conversation_history
 
 logger = logging.getLogger(__name__)
 
+_WEB_ONLY_PATTERN = re.compile(
+    r"\b(?:news|weather|stock prices?|exchange rates?|who won|sports scores?|"
+    r"current time|today's date|search the web|search online)\b",
+    re.IGNORECASE,
+)
+_WEB_AND_REPOSITORY_PATTERN = re.compile(
+    r"\b(?:latest|current|recent|today|now|version|release|price|as of)\b",
+    re.IGNORECASE,
+)
 
-def _decide_tools(question: str, history_block: str, model: Any) -> str:
-    """Ask the LLM whether to use repository, web, or both.
 
-    The model is asked to return a single token: REPO, WEB, or BOTH. If the
-    model response cannot be interpreted, default to REPO to keep behavior
-    conservative and repository-first.
-    """
-    prompt = (
-        "TOOL_SELECTION: Decide which sources are needed to answer the question. "
-        "Reply with exactly one of: REPO, WEB, or BOTH. No other text.\n\n"
-        f"Conversation History:\n{history_block}\nQuestion: {question}\nSelection:"
-    )
-    if hasattr(model, "invoke"):
-        resp = model.invoke(prompt)
-    elif hasattr(model, "generate"):
-        resp = model.generate(prompt)
-    else:
-        resp = model(prompt)
-    if isinstance(resp, str):
-        token = resp.strip().upper()
-    else:
-        token = str(resp).strip().upper()
-    if "BOTH" in token:
-        return "BOTH"
-    if "WEB" in token:
+def _decide_tools(question: str) -> str:
+    """Route explicitly external/current questions without an extra model call."""
+    if _WEB_ONLY_PATTERN.search(question):
         return "WEB"
-    if "REPO" in token:
-        return "REPO"
+    if _WEB_AND_REPOSITORY_PATTERN.search(question):
+        return "BOTH"
     return "REPO"
 
 
@@ -83,10 +72,12 @@ def answer_question(
     history_backend = (
         history_store if history_store is not None else conversation_history
     )
+    history_available = True
     try:
         history = history_backend.get_history(conversation_id)
     except Exception:
         logger.exception("Failed to load conversation history")
+        history_available = False
         history = []
     history = history[-conversation_history.MAX_HISTORY_TURNS:]
     history_block = ""
@@ -97,8 +88,8 @@ def answer_question(
             parts.append(f"Assistant: {turn['assistant']}")
         history_block = "\n".join(parts) + "\n\n"
 
-    # Ask the model which tools to use for this question (REPO/WEB/BOTH).
-    decision = _decide_tools(question, history_block, model)
+    # Keep repository questions fast by avoiding a separate model call for routing.
+    decision = _decide_tools(question)
 
     # Based on the decision, consult repository and/or web sources.
     chunks = []
@@ -225,9 +216,12 @@ def answer_question(
 
     
 
-    try:
-        history_backend.append_turn(question, answer_text, sources, conversation_id)
-    except Exception:
-        logger.exception("Failed to save conversation history")
+    if history_available:
+        try:
+            history_backend.append_turn(
+                question, answer_text, sources, conversation_id
+            )
+        except Exception:
+            logger.exception("Failed to save conversation history")
 
     return result_dict

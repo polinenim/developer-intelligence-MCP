@@ -25,6 +25,7 @@ class SearxngTests(unittest.TestCase):
         self.assertEqual(out[0]["title"], "T1")
         self.assertEqual(out[0]["url"], "http://a")
         self.assertEqual(out[0]["snippet"], "snippet1")
+        self.assertEqual(mock_get.call_args.kwargs["timeout"], 5)
 
 
 if __name__ == "__main__":

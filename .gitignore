@@ -3,3 +3,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .coverage
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx

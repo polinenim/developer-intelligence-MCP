@@ -1,6 +1,5 @@
 """Index the active repository into a vector store."""
 
-import os
 from pathlib import Path
 
 from rag.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE, chunk_file
@@ -8,6 +7,7 @@ from rag.embeddings import EmbeddingModel, LocalSentenceTransformerEmbeddings
 from rag.models import IndexedChunk, IndexingResult
 from rag.scanner import scan_repository
 from rag.vector_store import VectorStore
+from tools.environment import load_project_environment, resolve_database_url
 from tools.repository import repository_root
 
 
@@ -54,9 +54,8 @@ def index_active_repository(
 
 def main() -> None:
     """Run local repository indexing from the command line."""
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        raise SystemExit("Set DATABASE_URL before indexing a repository.")
+    load_project_environment()
+    database_url = resolve_database_url()
 
     from rag.vector_store import PostgresVectorStore
 

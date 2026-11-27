@@ -14,19 +14,28 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-import os
 from flask import Flask, request, jsonify
+import httpx
+from langchain_core.exceptions import ModelAPIError, ModelRateLimitError, ModelTimeoutError
+from server.llm_config import GEMINI_REQUEST_TIMEOUT_SECONDS
 
 from rag.embeddings import LocalSentenceTransformerEmbeddings
 from rag.vector_store import PostgresVectorStore
 from agent.agent import Agent
 from agent.history import PostgresConversationHistory
+from tools.environment import load_project_environment, resolve_database_url
 
 logger = logging.getLogger(__name__)
 
 MAX_QUESTION_LENGTH = 4000
 MAX_CONVERSATION_ID_LENGTH = 128
 MAX_REQUEST_BYTES = 64 * 1024
+PROJECT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+
+
+def _load_project_env() -> None:
+    """Load project-local settings without overriding shell configuration."""
+    load_project_environment(PROJECT_ENV_FILE)
 
 
 def _is_valid_agent_response(result: object) -> bool:
@@ -45,12 +54,10 @@ def _is_valid_agent_response(result: object) -> bool:
 def create_app() -> Flask:
     """Create and configure the Flask app and a single Agent instance.
 
-    The Agent is constructed once at startup using the project's real
-    embedding and vector-store classes. Tests should monkeypatch the
-    imported classes (`LocalSentenceTransformerEmbeddings`,
-    `PostgresVectorStore`, and `get_agent_model`) before calling
-    `create_app()` so they can provide lightweight fakes.
+    The embedding model and vector store are initialized at startup. An
+    Agent and its Gemini model are constructed for each request.
     """
+    _load_project_env()
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES
 
@@ -59,11 +66,16 @@ def create_app() -> Flask:
         logger.warning("Rejected oversized request: %s", error)
         return jsonify({"error": "request body is too large"}), 413
 
-    database_url = os.environ.get("DATABASE_URL", "")
+    database_url = resolve_database_url()
+
+    # Load the local embedding model before accepting requests so a cold
+    # Hugging Face download cannot consume the extension's request timeout.
+    embedding = LocalSentenceTransformerEmbeddings()
+    logger.info("Loading the local embedding model before accepting requests")
+    embedding.embed_query("API startup warmup")
 
     # Create real components — tests will monkeypatch these constructors
     # if they need to avoid heavy dependencies.
-    embedding = LocalSentenceTransformerEmbeddings()
     vector_store = PostgresVectorStore(database_url)
     history_store = (
         PostgresConversationHistory(database_url) if database_url.strip() else None
@@ -132,6 +144,45 @@ def create_app() -> Flask:
             result = agent.ask(
                 question, root=repo_root, conversation_id=conversation_id
             )
+        except ModelRateLimitError:
+            logger.warning("Gemini API rate limit or quota reached")
+            return jsonify(
+                {
+                    "error": (
+                        "Gemini API rate limit or quota has been reached. "
+                        "Check the configured project's quota or billing and try again later."
+                    )
+                }
+            ), 429
+        except (ModelTimeoutError, httpx.TimeoutException):
+            logger.warning("Gemini API request timed out")
+            return jsonify(
+                {
+                    "error": (
+                        f"Gemini did not respond within "
+                        f"{GEMINI_REQUEST_TIMEOUT_SECONDS} seconds. "
+                        "Check network access and try again."
+                    )
+                }
+            ), 504
+        except ModelAPIError as error:
+            if getattr(error, "code", None) == 504:
+                logger.warning("Gemini API deadline expired")
+                return jsonify(
+                    {
+                        "error": (
+                            "Gemini's deadline expired before it could complete "
+                            "the request. Please try again."
+                        )
+                    }
+                ), 504
+            logger.warning(
+                "Gemini API returned an upstream error (HTTP %s)",
+                getattr(error, "code", "unknown"),
+            )
+            return jsonify(
+                {"error": "Gemini API returned an upstream error. Please try again."}
+            ), 502
         except Exception:
             logger.exception("Agent request failed")
             return jsonify({"error": "Agent request failed"}), 500

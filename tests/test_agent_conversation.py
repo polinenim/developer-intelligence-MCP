@@ -165,9 +165,9 @@ class ConversationTests(unittest.TestCase):
 
         follow_up_prompt = prompts[-1]
         self.assertIn("Question from A", follow_up_prompt)
-        self.assertIn("answer-2", follow_up_prompt)
+        self.assertIn("answer-1", follow_up_prompt)
         self.assertNotIn("Question from B", follow_up_prompt)
-        self.assertNotIn("answer-4", follow_up_prompt)
+        self.assertNotIn("answer-2", follow_up_prompt)
 
     def test_empty_history_and_normal_question(self):
         fake_model = SimpleNamespace()
@@ -361,9 +361,8 @@ class ConversationTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["answer"], "ANSWER")
-        self.assertEqual(len(logs.output), 2)
+        self.assertEqual(len(logs.output), 1)
         self.assertIn("Failed to load conversation history", logs.output[0])
-        self.assertIn("Failed to save conversation history", logs.output[1])
 
     def test_prompt_uses_only_latest_ten_of_persisted_history(self):
         prompts = []

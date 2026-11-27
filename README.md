@@ -10,7 +10,7 @@ Developer Intelligence MCP analyzes a software repository and answers developer 
 - **Agent and language model:** the agent selects repository (`REPO`), web (`WEB`), or combined (`BOTH`) sources and uses Gemini through LangChain to produce an answer.
 - **Evidence tracking:** answers include repository file paths and line ranges or web result titles and URLs.
 - **Web search:** SearXNG provides web results through its HTTP search API.
-- **Conversation history:** follow-up context is kept in process memory.
+- **Conversation history:** the API persists recent follow-up context in PostgreSQL; direct in-process agent calls can use memory.
 - **Local interfaces:** a Flask `/ask` API and a VS Code extension with a sidebar view and Command Palette command.
 - **Automated tests:** tests cover repository tools, retrieval, agent behavior, and SearXNG response handling.
 
@@ -70,104 +70,66 @@ The MCP server exposes repository tools over stdio; the Flask API is a separate 
 ├── tests/                 # Automated tests
 ├── vscode-extension/      # Minimal VS Code extension
 ├── searxng/               # SearXNG settings
-├── docker-compose.yml     # Starts SearXNG only
+├── docker-compose.yml     # Starts PostgreSQL/pgvector and SearXNG
 ├── requirements.txt
 └── README.md
 ```
 
 ## Setup
 
-### 1. Clone and install Python dependencies
+### Windows PowerShell
 
-```sh
+```powershell
 git clone https://github.com/polinenim/developer-intelligence-MCP.git
 cd developer-intelligence-MCP
 python -m venv .venv
 ```
 
-Activate the environment:
-
-```sh
-# macOS/Linux
-source .venv/bin/activate
-
-# Windows PowerShell
+```powershell
 .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
 
-Install the project dependencies:
+If PowerShell blocks activation, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in that terminal and activate the environment again. This applies only to the current PowerShell process.
 
-```sh
-python -m pip install -r requirements.txt
+Create a local `.env` without overwriting an existing one, then edit it:
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env
 ```
 
-### 2. Configure the repository and database
+Set `POSTGRES_PASSWORD` and `GEMINI_API_KEY` in `.env`. `POSTGRES_USER` and `POSTGRES_DB` default to `developer` and `developer_intelligence`. Set `REPOSITORY_ROOT` to the repository you want to index; `.` selects the current project when you run commands from its root.
 
-Set the repository path to the code you want to analyze. To analyze this project, use its absolute path.
+The PostgreSQL host port defaults to `5433`. If it is occupied, set `POSTGRES_PORT` in `.env` to another available port. Leave `DATABASE_URL` blank and the application derives it from the PostgreSQL settings, or, if you set it explicitly, make sure its port and credentials match those settings. URL-encode special characters in an explicit URL password. In `.env`, single-quote a password containing `$` so Compose does not treat it as variable interpolation.
 
-```sh
-# macOS/Linux
-export REPOSITORY_ROOT="/absolute/path/to/repository"
-export DATABASE_URL="postgresql://localhost:5432/developer_intelligence"
+The project-root `.env` is loaded by the Flask API, repository indexer, and MCP server. Shell environment variables take precedence over `.env`; a non-empty explicit `DATABASE_URL` takes precedence over the derived URL. Remove stale shell variables if you want `.env` settings to apply. Never commit `.env` or real credentials; `.env.example` contains safe placeholders.
 
-# Windows PowerShell
-$env:REPOSITORY_ROOT = "C:\path\to\repository"
-$env:DATABASE_URL = "postgresql://localhost:5432/developer_intelligence"
-```
+### Start the project
 
-Adjust the connection URI for the PostgreSQL host and authentication configured in your environment. Do not commit a credential-bearing URI.
+Start PostgreSQL and SearXNG:
 
-Start or connect to a PostgreSQL server with the `pgvector` extension installed, then create the database:
-
-```sh
-createdb developer_intelligence
-```
-
-The vector store enables the `vector` extension and creates its table and index on the first indexing run. PostgreSQL must have the pgvector extension files installed and available to the database.
-
-### 3. Configure Gemini securely
-
-Supply the API key through the environment; replace the example placeholder with your own key:
-
-```sh
-# macOS/Linux
-export GEMINI_API_KEY="your-gemini-api-key"
-
-# Windows PowerShell
-$env:GEMINI_API_KEY = "your-gemini-api-key"
-```
-
-Never put a real API key in source code or commit `.env` files or other secret files. The application reads `GEMINI_API_KEY` from the process environment.
-
-### 4. Start SearXNG
-
-Docker and Docker Compose are required for the included SearXNG service. From the project root:
-
-```sh
+```powershell
 docker compose up -d
 ```
 
-Configure the search service URL in the same shell used to run the application:
+On the initial setup, index the configured repository once:
 
-```sh
-# macOS/Linux
-export SEARXNG_URL="http://localhost:8080"
-
-# Windows PowerShell
-$env:SEARXNG_URL = "http://localhost:8080"
-```
-
-The Compose file starts SearXNG only; it does not start PostgreSQL.
-
-### 5. Index the repository
-
-With `REPOSITORY_ROOT` and `DATABASE_URL` set, run:
-
-```sh
+```powershell
 python -m rag.indexing
 ```
 
-This scans the selected repository, creates local embeddings, and writes the indexed chunks to PostgreSQL/pgvector.
+Start the Flask API:
+
+```powershell
+python -m server.agent_api
+```
+
+Keep that terminal open while using the API. In VS Code, open the repository and press F5 to launch the Extension Development Host.
+
+For subsequent launches, activate `.venv` in PowerShell, run `docker compose up -d`, and start the API with `python -m server.agent_api`. You do not need to reinstall dependencies or rerun indexing unless dependencies change or you want to refresh the indexed repository.
+
+The Compose PostgreSQL service uses pgvector, creates the configured database and user, and stores data in a project-scoped named volume. Its initialization script enables `vector` and grants permissions to the configured PostgreSQL user on a fresh database; the application creates its repository table and index during the initial indexing run. Initialization scripts run only when the data directory is empty, and normal service restarts preserve the named volume.
 
 ## Running the system
 
@@ -205,7 +167,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:8765/ask -Method Post `
   -Body '{"question":"Where is authentication handled?","repository_root":"C:\path\to\repository"}'
 ```
 
-`conversation_id` is optional; reuse an ID to keep follow-up context between requests. With `DATABASE_URL` configured, the latest 10 turns per conversation are stored in the same PostgreSQL database used by repository retrieval. The API creates the `conversation_turns` table and its index on first use; the database role needs permission to create them. Requests without a conversation ID are not added to conversation history. The response is JSON containing the answer, source details, and evidence; `source_errors` reports repository or web sources that could not be reached. A missing or blank `question`, a question over 4,000 characters, an invalid conversation ID, or a `repository_root` that is not an existing directory returns HTTP 400. Request bodies over 64 KiB return HTTP 413. The VS Code extension supplies the active workspace as `repository_root` and maintains a conversation ID per workspace for follow-up questions.
+`conversation_id` is optional; reuse an ID to keep follow-up context between requests. The API stores up to 20 turns per conversation in the same PostgreSQL database used for repository retrieval and includes the latest 10 in the model context. It creates the `conversation_turns` table and its index on first use; the database role needs permission to create them. Requests without a conversation ID are not added to conversation history. Direct in-process agent calls without a PostgreSQL history store use memory instead. The response is JSON containing the answer, source details, and evidence; `source_errors` reports repository or web sources that could not be reached. A missing or blank `question`, a question over 4,000 characters, an invalid conversation ID, or a `repository_root` that is not an existing directory returns HTTP 400. Request bodies over 64 KiB return HTTP 413. The VS Code extension supplies the active workspace as `repository_root` and maintains a conversation ID per workspace for follow-up questions.
 
 ### VS Code extension
 
@@ -232,7 +194,7 @@ The agent chooses repository evidence, web results, or both according to the que
 
 ## Conversation history
 
-Conversation history is held in memory, cleared when the process restarts, and not stored in PostgreSQL.
+API conversation history is stored in PostgreSQL and survives API restarts; direct in-process agent history is held in memory and cleared when that process restarts.
 
 ## Testing
 

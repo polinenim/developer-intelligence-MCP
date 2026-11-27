@@ -27,6 +27,33 @@ class LLMConfigTests(unittest.TestCase):
         # type and that the GOOGLE_API_KEY env var was set from GEMINI_API_KEY.
         self.assertIsInstance(model, ChatGoogleGenerativeAI)
         self.assertEqual(os.environ.get("GOOGLE_API_KEY"), "test-key")
+        self.assertEqual(model.max_retries, 1)
+        self.assertEqual(
+            model.timeout, llm_config.GEMINI_REQUEST_TIMEOUT_SECONDS
+        )
+        self.assertGreaterEqual(llm_config.GEMINI_REQUEST_TIMEOUT_SECONDS, 10)
+
+    def test_gemini_key_replaces_stale_google_api_key(self) -> None:
+        original_gemini_key = os.environ.get("GEMINI_API_KEY")
+        original_google_key = os.environ.get("GOOGLE_API_KEY")
+        try:
+            os.environ["GEMINI_API_KEY"] = "current-gemini-test-key"
+            os.environ["GOOGLE_API_KEY"] = "stale-google-test-key"
+
+            llm_config.init_gemini_chat_model()
+
+            self.assertEqual(
+                os.environ["GOOGLE_API_KEY"], "current-gemini-test-key"
+            )
+        finally:
+            if original_gemini_key is None:
+                os.environ.pop("GEMINI_API_KEY", None)
+            else:
+                os.environ["GEMINI_API_KEY"] = original_gemini_key
+            if original_google_key is None:
+                os.environ.pop("GOOGLE_API_KEY", None)
+            else:
+                os.environ["GOOGLE_API_KEY"] = original_google_key
 
 
 if __name__ == "__main__":

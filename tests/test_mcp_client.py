@@ -2,6 +2,7 @@
 import sys
 import unittest
 from pathlib import Path
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -158,6 +159,17 @@ class MCPClientTests(unittest.TestCase):
     def test_connection_failure_is_reported(self):
         with patch("agent.mcp_client.stdio_client", side_effect=OSError("offline")):
             with self.assertRaisesRegex(MCPClientError, "OSError"):
+                search_and_read_repository("/repo", "query")
+
+    def test_slow_mcp_request_is_bounded(self):
+        async def wait_forever(*args, **kwargs):
+            await asyncio.Event().wait()
+
+        with patch(
+            "agent.mcp_client._search_and_read_repository",
+            side_effect=wait_forever,
+        ), patch("agent.mcp_client.MCP_REQUEST_TIMEOUT_SECONDS", 0.01):
+            with self.assertRaisesRegex(MCPClientError, "timed out"):
                 search_and_read_repository("/repo", "query")
 
 

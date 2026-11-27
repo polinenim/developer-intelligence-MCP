@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from tools.repository import is_sensitive_repository_file
+
 
 def _resolve_repository_file(root: Path, relative_path: str) -> Path:
     if not relative_path.strip():
@@ -13,6 +15,8 @@ def _resolve_repository_file(root: Path, relative_path: str) -> Path:
         raise ValueError("path must point to a file inside the repository")
     if not candidate.is_file():
         raise FileNotFoundError(f"file not found: {relative_path}")
+    if is_sensitive_repository_file(candidate):
+        raise ValueError("file is excluded from repository access")
     return candidate
 
 

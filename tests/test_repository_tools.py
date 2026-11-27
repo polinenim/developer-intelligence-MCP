@@ -32,6 +32,37 @@ class RepositoryToolsTests(unittest.TestCase):
             ["README.md", "src/auth.py"],
         )
 
+    def test_search_skips_sensitive_files_but_keeps_env_example(self) -> None:
+        secrets_dir = self.root / "secrets"
+        secrets_dir.mkdir()
+        (self.root / ".env").write_text("shared-marker\n", encoding="utf-8")
+        (self.root / ".env.example").write_text("shared-marker\n", encoding="utf-8")
+        (self.root / ".env.local").write_text("shared-marker\n", encoding="utf-8")
+        (secrets_dir / "credentials.json").write_text(
+            "shared-marker\n", encoding="utf-8"
+        )
+        (self.root / "signing.pem").write_text("shared-marker\n", encoding="utf-8")
+
+        self.assertEqual(
+            search_repository(self.root, "shared-marker"),
+            [".env.example"],
+        )
+
+    def test_read_file_rejects_sensitive_files_but_allows_env_example(self) -> None:
+        (self.root / ".env").write_text("local secret\n", encoding="utf-8")
+        (self.root / ".env.example").write_text("safe placeholder\n", encoding="utf-8")
+        (self.root / ".env.local").write_text("local secret\n", encoding="utf-8")
+        (self.root / "signing.pem").write_text("private key\n", encoding="utf-8")
+
+        self.assertEqual(
+            read_repository_file(self.root, ".env.example"),
+            "safe placeholder\n",
+        )
+        for path in (".env", ".env.local", "signing.pem"):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(ValueError, "excluded from repository"):
+                    read_repository_file(self.root, path)
+
     def test_read_file_rejects_paths_outside_root(self) -> None:
         with self.assertRaisesRegex(ValueError, "inside the repository"):
             read_repository_file(self.root, "../outside.txt")

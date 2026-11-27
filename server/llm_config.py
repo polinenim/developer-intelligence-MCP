@@ -13,6 +13,7 @@ from typing import Any, Optional
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 ENV_VAR = "GEMINI_API_KEY"
+GEMINI_REQUEST_TIMEOUT_SECONDS = 80
 
 
 def get_gemini_api_key() -> str:
@@ -39,9 +40,13 @@ def init_gemini_chat_model(api_key: Optional[str] = None, model_name: str = "gem
     # LangChain's Google Gemini chat model relies on the google generative
     # client reading credentials from environment variables. Set the
     # conventional variable used by the client and then construct the model.
-    os.environ.setdefault("GOOGLE_API_KEY", api_key)
+    os.environ["GOOGLE_API_KEY"] = api_key
 
     # Instantiate and return the LangChain Google GenAI chat model.
     # Pass the API key explicitly via the environment variable and use the
     # provided model name. Construction does not perform network requests.
-    return ChatGoogleGenerativeAI(model=model_name)
+    return ChatGoogleGenerativeAI(
+        model=model_name,
+        max_retries=1,
+        request_timeout=GEMINI_REQUEST_TIMEOUT_SECONDS,
+    )

@@ -27,10 +27,12 @@ class AgentWebTests(unittest.TestCase):
 
     def test_agent_uses_repo_only_for_repo_questions(self):
         fake_model = SimpleNamespace()
+        prompts = []
+
         def generate(prompt):
-            if str(prompt).startswith("TOOL_SELECTION:"):
-                return "REPO"
+            prompts.append(prompt)
             return "REPO ANSWER"
+
         fake_model.generate = generate
 
         from rag.models import RetrievedChunk
@@ -44,6 +46,27 @@ class AgentWebTests(unittest.TestCase):
 
         self.assertEqual(res["answer"], "REPO ANSWER")
         self.assertTrue(any("file_path" in s for s in res["sources"]))
+        self.assertEqual(len(prompts), 1)
+        self.assertNotIn("TOOL_SELECTION:", prompts[0])
+
+    def test_explicit_web_intent_still_uses_web(self):
+        fake_model = SimpleNamespace(generate=lambda prompt: "WEB ANSWER")
+        web_res = [{"title": "Forecast", "url": "https://weather.test", "snippet": "Sunny"}]
+
+        with patch("rag.retrieval.retrieve_relevant_chunks", return_value=[]), patch(
+            "tools.searxng.search_web", return_value=web_res
+        ) as search_web:
+            res = agent_core.answer_question(
+                "What's the weather today?",
+                embedding_model=None,
+                vector_store=None,
+                model=fake_model,
+                root="/repo",
+            )
+
+        self.assertEqual(res["answer"], "WEB ANSWER")
+        search_web.assert_called_once()
+        self.assertTrue(any(source.get("type") == "web" for source in res["sources"]))
 
     def test_agent_combined_repo_and_web(self):
         fake_model = SimpleNamespace()

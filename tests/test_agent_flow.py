@@ -149,6 +149,47 @@ class AgentFlowTests(unittest.TestCase):
         )
         self.assertIn("fallback evidence", result["evidence"])
 
+    def test_history_load_failure_skips_save_and_keeps_repository_fallback(self):
+        fake_model = SimpleNamespace()
+        fake_model.generate = lambda prompt: (
+            "REPO" if prompt.startswith("TOOL_SELECTION:") else "FALLBACK ANSWER"
+        )
+
+        class UnavailableHistoryStore:
+            def __init__(self):
+                self.append_attempts = 0
+
+            def get_history(self, conversation_id):
+                raise RuntimeError("password authentication failed")
+
+            def append_turn(self, user, assistant, sources, conversation_id):
+                self.append_attempts += 1
+
+        history_store = UnavailableHistoryStore()
+        with patch(
+            "rag.retrieval.retrieve_relevant_chunks",
+            side_effect=RuntimeError("password authentication failed"),
+        ), patch(
+            "agent.mcp_client.search_and_read_repository",
+            return_value=[("README.md", "repository fallback evidence")],
+        ), self.assertLogs("agent.core", level="ERROR") as logs:
+            result = answer_question(
+                "Where is the application configured?",
+                embedding_model=None,
+                vector_store=None,
+                model=fake_model,
+                root="/repo",
+                conversation_id="conversation-a",
+                history_store=history_store,
+            )
+
+        self.assertEqual(result["answer"], "FALLBACK ANSWER")
+        self.assertIn("repository fallback evidence", result["evidence"])
+        self.assertEqual(history_store.append_attempts, 0)
+        self.assertEqual(len(logs.output), 2)
+        self.assertIn("Failed to load conversation history", logs.output[0])
+        self.assertIn("Repository retrieval failed", logs.output[1])
+
     def test_answer_falls_back_to_search_and_read(self):
         fake_model = SimpleNamespace()
         fake_model.generate = lambda prompt: "FILE ANSWER"

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from rag.file_filter import MAX_FILE_BYTES, should_index_file, should_skip_directory
 from rag.models import RepositoryFile
+from tools.repository import is_sensitive_repository_file
 
 
 def scan_repository(root: Path) -> list[RepositoryFile]:
@@ -20,9 +21,12 @@ def scan_repository(root: Path) -> list[RepositoryFile]:
         )
         for filename in sorted(filenames):
             candidate = Path(current, filename)
-            if not candidate.resolve().is_relative_to(repository):
+            resolved_candidate = candidate.resolve()
+            if not resolved_candidate.is_relative_to(repository):
                 continue
-            if not should_index_file(candidate):
+            if not should_index_file(candidate) or is_sensitive_repository_file(
+                resolved_candidate
+            ):
                 continue
             content = _read_text_file(candidate)
             if content is not None:

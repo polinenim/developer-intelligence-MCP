@@ -1,10 +1,15 @@
 import json
 import os
 
+import httpx
+from langchain_core.exceptions import ModelRateLimitError
+from langchain_google_genai.chat_models import GoogleAPIError
+
 
 def test_ask_endpoint_monkeypatch(monkeypatch, tmp_path):
     # Provide lightweight fakes for heavy dependencies before creating the app
     monkeypatch.setenv("DATABASE_URL", "postgres://unused")
+    embedding_warmups = []
 
     # Fake embedding that avoids importing sentence-transformers
     class FakeEmbedding:
@@ -12,6 +17,7 @@ def test_ask_endpoint_monkeypatch(monkeypatch, tmp_path):
             return [[0.0] * 8 for _ in texts]
 
         def embed_query(self, query: str):
+            embedding_warmups.append(query)
             return [0.0] * 8
 
     # Fake PostgresVectorStore that does not try to connect
@@ -47,6 +53,15 @@ def test_ask_endpoint_monkeypatch(monkeypatch, tmp_path):
         configured_history_stores.append(self.history_store)
         if question == "trigger error":
             raise RuntimeError("internal detail")
+        if question == "trigger rate limit":
+            raise ModelRateLimitError("quota exceeded; sensitive provider details")
+        if question == "trigger timeout":
+            raise httpx.ReadTimeout("sensitive provider details")
+        if question == "trigger provider deadline":
+            raise GoogleAPIError(
+                code=504,
+                response_json={"error": {"message": "sensitive provider details"}},
+            )
         if question == "invalid agent response":
             return {"answer": [], "sources": [], "evidence": ""}
         if question == "unserializable agent response":
@@ -74,10 +89,12 @@ def test_ask_endpoint_monkeypatch(monkeypatch, tmp_path):
 
     monkeypatch.setattr(agent_mod.Agent, "ask", fake_ask)
 
-    from server.agent_api import create_app
+    from server import agent_api
 
-    app = create_app()
+    monkeypatch.setattr(agent_api, "PROJECT_ENV_FILE", tmp_path / "missing.env")
+    app = agent_api.create_app()
     client = app.test_client()
+    assert embedding_warmups == ["API startup warmup"]
 
     resp = client.post("/ask", data=json.dumps({"question": "hello"}), content_type="application/json")
     assert resp.status_code == 200
@@ -194,6 +211,49 @@ def test_ask_endpoint_monkeypatch(monkeypatch, tmp_path):
     assert failed_resp.get_json() == {"error": "Agent request failed"}
     assert "internal detail" not in failed_resp.get_data(as_text=True)
 
+    rate_limited_resp = client.post(
+        "/ask",
+        data=json.dumps({"question": "trigger rate limit"}),
+        content_type="application/json",
+    )
+    assert rate_limited_resp.status_code == 429
+    assert rate_limited_resp.get_json() == {
+        "error": (
+            "Gemini API rate limit or quota has been reached. "
+            "Check the configured project's quota or billing and try again later."
+        )
+    }
+    assert "sensitive provider details" not in rate_limited_resp.get_data(as_text=True)
+
+    timed_out_resp = client.post(
+        "/ask",
+        data=json.dumps({"question": "trigger timeout"}),
+        content_type="application/json",
+    )
+    assert timed_out_resp.status_code == 504
+    assert timed_out_resp.get_json() == {
+        "error": (
+            f"Gemini did not respond within "
+            f"{agent_api.GEMINI_REQUEST_TIMEOUT_SECONDS} seconds. "
+            "Check network access and try again."
+        )
+    }
+    assert "sensitive provider details" not in timed_out_resp.get_data(as_text=True)
+
+    provider_deadline_resp = client.post(
+        "/ask",
+        data=json.dumps({"question": "trigger provider deadline"}),
+        content_type="application/json",
+    )
+    assert provider_deadline_resp.status_code == 504
+    assert provider_deadline_resp.get_json() == {
+        "error": (
+            "Gemini's deadline expired before it could complete "
+            "the request. Please try again."
+        )
+    }
+    assert "sensitive provider details" not in provider_deadline_resp.get_data(as_text=True)
+
     for invalid_question in ("", "   ", None, 42):
         invalid_resp = client.post(
             "/ask",
@@ -216,3 +276,64 @@ def test_ask_endpoint_monkeypatch(monkeypatch, tmp_path):
     malformed_resp = client.post("/ask", data="{", content_type="application/json")
     assert malformed_resp.status_code == 400
     assert malformed_resp.get_json() == {"error": "question is required"}
+
+
+def test_shell_environment_takes_precedence_over_project_env(monkeypatch, tmp_path):
+    from server import agent_api
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "DATABASE_URL=postgresql://postgres:test@127.0.0.1:5433/developer_intelligence\n"
+        "GEMINI_API_KEY=file-gemini-key\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(agent_api, "PROJECT_ENV_FILE", env_file)
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://postgres:old@localhost:5432/developer_intelligence",
+    )
+    monkeypatch.setenv("GEMINI_API_KEY", "stale-gemini-key")
+
+    agent_api._load_project_env()
+
+    assert os.environ["DATABASE_URL"] == (
+        "postgresql://postgres:old@localhost:5432/developer_intelligence"
+    )
+    assert os.environ["GEMINI_API_KEY"] == "stale-gemini-key"
+
+
+def test_create_app_uses_database_url_from_project_env(monkeypatch, tmp_path):
+    from server import agent_api
+
+    database_url = (
+        "postgresql://postgres:test@127.0.0.1:5433/developer_intelligence"
+    )
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"DATABASE_URL={database_url}\n", encoding="utf-8")
+    monkeypatch.setattr(agent_api, "PROJECT_ENV_FILE", env_file)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    configured_urls = {}
+
+    class FakeEmbedding:
+        def embed_query(self, query):
+            return [0.0]
+
+    class FakeStore:
+        def __init__(self, value):
+            configured_urls["vector_store"] = value
+
+    class FakeHistoryStore:
+        def __init__(self, value):
+            configured_urls["history_store"] = value
+
+    monkeypatch.setattr(agent_api, "LocalSentenceTransformerEmbeddings", FakeEmbedding)
+    monkeypatch.setattr(agent_api, "PostgresVectorStore", FakeStore)
+    monkeypatch.setattr(agent_api, "PostgresConversationHistory", FakeHistoryStore)
+
+    agent_api.create_app()
+
+    assert configured_urls == {
+        "vector_store": database_url,
+        "history_store": database_url,
+    }

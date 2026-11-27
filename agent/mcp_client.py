@@ -10,6 +10,8 @@ from typing import Any
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
+MCP_REQUEST_TIMEOUT_SECONDS = 30
+
 
 class MCPClientError(RuntimeError):
     """Raised when the repository MCP server cannot complete a request."""
@@ -95,7 +97,14 @@ def search_and_read_repository(
     """Search and read repository files through the existing MCP server."""
     repository_root = Path(root).expanduser().resolve() if root else Path.cwd().resolve()
     try:
-        return asyncio.run(_search_and_read_repository(repository_root, query, limit))
+        return asyncio.run(
+            asyncio.wait_for(
+                _search_and_read_repository(repository_root, query, limit),
+                timeout=MCP_REQUEST_TIMEOUT_SECONDS,
+            )
+        )
+    except TimeoutError as error:
+        raise MCPClientError("Repository MCP request timed out.") from error
     except MCPClientError:
         raise
     except Exception as error:

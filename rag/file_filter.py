@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from tools.repository import IGNORED_DIRECTORIES
+from tools.repository import IGNORED_DIRECTORIES, is_sensitive_repository_file
 
 
 MAX_FILE_BYTES = 1_000_000
@@ -53,6 +53,8 @@ def should_skip_directory(name: str) -> bool:
 def should_index_file(path: Path) -> bool:
     """Return whether a path looks like useful source or documentation text."""
     name = path.name.casefold()
+    if is_sensitive_repository_file(path):
+        return False
     if name in GENERATED_FILENAMES or name.endswith(GENERATED_SUFFIXES):
         return False
     return name in SUPPORTED_FILENAMES or path.suffix.casefold() in SUPPORTED_EXTENSIONS

@@ -5,6 +5,7 @@ from mcp.server import MCPServer
 from tools.read_file import read_repository_file
 from tools.repository import repository_root
 from tools.search_code import search_repository
+from tools.environment import load_project_environment
 
 
 mcp = MCPServer("developer-intelligence-mcp")
@@ -23,4 +24,5 @@ def search_code(query: str) -> list[str]:
 
 
 if __name__ == "__main__":
+    load_project_environment()
     mcp.run()

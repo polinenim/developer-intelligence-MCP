@@ -11,6 +11,8 @@ from typing import List, Dict
 
 import requests
 
+SEARCH_TIMEOUT_SECONDS = 5
+
 
 def _searx_base() -> str:
     url = os.environ.get("SEARXNG_URL")
@@ -31,7 +33,7 @@ def search_web(query: str, limit: int = 5) -> List[Dict[str, str]]:
     base = _searx_base()
     api = f"{base}/search"
     params = {"q": query, "format": "json", "categories": "general"}
-    resp = requests.get(api, params=params, timeout=10)
+    resp = requests.get(api, params=params, timeout=SEARCH_TIMEOUT_SECONDS)
     resp.raise_for_status()
     data = resp.json()
 

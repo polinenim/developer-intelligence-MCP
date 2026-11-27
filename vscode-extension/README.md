@@ -20,7 +20,7 @@ A local VS Code extension that connects to the Developer Intelligence MCP agent 
 
 ## Run locally
 
-1. Open the `developer-intelligence-mcp` project in VS Code.
+1. Open the `developer-intelligence-mcp` project root in VS Code.
 2. Ensure the project's virtual environment and dependencies are configured.
 3. Start the required services and ensure the repository is indexed.
 4. Start the local agent API from the project root:
@@ -28,9 +28,8 @@ A local VS Code extension that connects to the Developer Intelligence MCP agent 
 ```
 python -m server.agent_api
 ```
-5. Open the `vscode-extension` folder as the extension root in a VS Code window.
-6. Press `F5` to launch the Extension Development Host.
-7. Open the Developer Intelligence sidebar, enter a question, and click **Ask**, or run **Developer Intelligence: Open Chat Panel** from the Command Palette.
+5. Press `F5` to launch the configured Extension Development Host.
+6. Open the Developer Intelligence sidebar, enter a question, and click **Ask**, or run **Developer Intelligence: Open Chat Panel** from the Command Palette.
 The local API runs at `http://127.0.0.1:8765`.
 
 ## Tests

@@ -77,11 +77,16 @@ class RepositoryRagTests(unittest.TestCase):
     def test_scanner_filters_generated_binary_large_and_ignored_files(self) -> None:
         (self.root / "src").mkdir()
         (self.root / "node_modules").mkdir()
+        (self.root / "secrets").mkdir()
         (self.root / "src" / "service.py").write_text("def run(): pass\n", encoding="utf-8")
         (self.root / "README.md").write_text("Project documentation\n", encoding="utf-8")
         (self.root / "src" / "app.min.js").write_text("generated", encoding="utf-8")
         (self.root / "src" / "binary.py").write_bytes(b"\x00not text")
         (self.root / "node_modules" / "dependency.js").write_text("ignored", encoding="utf-8")
+        (self.root / "secrets" / "credentials.json").write_text(
+            '{"token":"local-only"}', encoding="utf-8"
+        )
+        (self.root / "signing.pem").write_text("private key", encoding="utf-8")
         (self.root / "src" / "large.py").write_bytes(b"a" * 1_000_001)
 
         files = scan_repository(self.root)
