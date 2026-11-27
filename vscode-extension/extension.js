@@ -1,10 +1,16 @@
 
 const vscode = require('vscode');
 const { randomUUID } = require('crypto');
+const {
+  API_ENDPOINT,
+  REQUEST_TIMEOUT_MS,
+  requestAgentAnswer,
+  sendAnswerToWebview,
+} = require('./agent-response');
 
-const API_ENDPOINT = 'http://127.0.0.1:8765/ask';
 const MAX_QUESTION_LENGTH = 4000;
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MESSAGE =
+  'Agent request exceeded 180 seconds. Check API/model logs; it may still be processing.';
 const conversationIds = new Map();
 
 function createRequestBody(question) {
@@ -206,51 +212,12 @@ function activate(context) {
       return;
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
     try {
       // Determine the active workspace folder (if any) and include it
       // so the backend can operate on the opened repository. Handle the
       // case where no folder is open gracefully.
       const body = createRequestBody(normalizedQuestion);
-
-      const resp = await fetch(API_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!resp.ok) {
-        let errorMessage = `Request failed (${resp.status})`;
-        const responseText = (await resp.text()).trim();
-        if (responseText) {
-          try {
-            const errorJson = JSON.parse(responseText);
-            if (typeof errorJson.error === 'string') {
-              errorMessage = errorJson.error;
-            }
-          } catch {
-            errorMessage = responseText;
-          }
-        }
-        vscode.window.showErrorMessage(`Agent error: ${errorMessage}`);
-        return;
-      }
-
-      let json;
-      try {
-        json = JSON.parse(await resp.text());
-      } catch {
-        vscode.window.showErrorMessage(
-          'Agent API returned an invalid response.'
-        );
-        return;
-      }
-      const answer = formatAnswer(
-        json.answer || 'No answer returned.'
-      );
+      const answer = formatAnswer(await requestAgentAnswer(body));
 
       output.appendLine(`You: ${normalizedQuestion}`);
       output.appendLine(`Agent: ${answer}`);
@@ -259,16 +226,19 @@ function activate(context) {
       output.show(true);
     } catch (err) {
       if (err && err.name === 'AbortError') {
-        vscode.window.showErrorMessage(
-          'Agent request timed out. Check that the local agent API is running.'
-        );
+        vscode.window.showErrorMessage(REQUEST_TIMEOUT_MESSAGE);
+        return;
+      }
+      if (
+        err &&
+        (err.name === 'AgentApiError' || err.name === 'AgentResponseError')
+      ) {
+        vscode.window.showErrorMessage(err.message);
         return;
       }
       vscode.window.showErrorMessage(
         'Could not contact local agent API: ' + String(err)
       );
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
@@ -332,53 +302,31 @@ function activate(context) {
           isProcessing = true;
           const controller = new AbortController();
           activeController = controller;
-          const timeout = setTimeout(
-            () => controller.abort(),
-            REQUEST_TIMEOUT_MS
-          );
 
           try {
-            const response = await fetch(API_ENDPOINT, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(createRequestBody(question)),
-              signal: controller.signal,
-            });
-            const responseText = (await response.text()).trim();
-            let result;
-            try {
-              result = responseText ? JSON.parse(responseText) : null;
-            } catch {
-              result = null;
-            }
-
-            if (!response.ok) {
-              const errorMessage =
-                result && typeof result.error === 'string'
-                  ? result.error
-                  : responseText || `Request failed (${response.status})`;
-              const error = new Error(`Agent API error: ${errorMessage}`);
-              error.name = 'AgentApiError';
-              throw error;
-            }
-            if (!result || typeof result.answer !== 'string') {
-              const error = new Error('Agent API returned an invalid response.');
-              error.name = 'AgentResponseError';
-              throw error;
-            }
+            const answer = await requestAgentAnswer(
+              createRequestBody(question),
+              { signal: controller.signal }
+            );
 
             if (!disposed) {
-              panel.webview.postMessage({
-                type: 'answer',
-                answer: formatAnswer(result.answer),
-              });
+              const delivered = await sendAnswerToWebview(
+                panel.webview,
+                answer
+              );
+              if (!delivered) {
+                panel.webview.postMessage({
+                  type: 'error',
+                  message:
+                    'The answer was received, but the chat panel could not display it. Reopen the panel and try again.',
+                });
+              }
             }
           } catch (error) {
             if (!disposed) {
               let messageText;
               if (error && error.name === 'AbortError') {
-                messageText =
-                  'Agent request timed out. Check that the local agent API is running.';
+                messageText = REQUEST_TIMEOUT_MESSAGE;
               } else if (
                 error &&
                 (error.name === 'AgentApiError' ||
@@ -394,7 +342,6 @@ function activate(context) {
               });
             }
           } finally {
-            clearTimeout(timeout);
             isProcessing = false;
             activeController = undefined;
           }
